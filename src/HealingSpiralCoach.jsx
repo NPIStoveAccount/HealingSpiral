@@ -785,8 +785,53 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
         <Results
           scores={scores}
           modalities={getTopModalities(scores, 5)}
-          onEmailCapture={() => setStage("email_capture")}
+          onEmailCapture={() => {
+            // If user is already logged in, skip email capture — send report in background and go to paywall
+            if (email && email.includes("@") && emailSubmitted) {
+              // Migrate session to email-keyed storage if needed
+              setSessionKey(email);
+              saveSession({
+                stage: "paywall", email, emailSubmitted: true,
+                persona: _personaStored, clinicalMode, sliderResponses,
+                scores, probingMessages, probingDone: true,
+              });
+              // Send report email in background
+              (async () => {
+                try {
+                  const pdfBase64 = await generatePDF(scores);
+                  const resp = await fetch("/api/send-report", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      email, scores,
+                      dimensions: DIMENSIONS.map(d => ({ id: d.id, label: d.label, emoji: d.emoji, description: d.description })),
+                      tierLabels: TIER_LABELS,
+                      modalities: getTopModalities(scores, 5).map(m => ({ name: m.name, dimensions: m.dimensions })),
+                      pdfBase64,
+                    }),
+                  });
+                  if (resp.ok) addToast("Your report has been sent! Check your inbox.", "success");
+                  else addToast("Couldn't send report email. You can still download the PDF.", "error");
+                } catch { addToast("Couldn't send report email. You can still download the PDF.", "error"); }
+              })();
+              setStage("paywall");
+            } else {
+              setStage("email_capture");
+            }
+          }}
           onDownloadPDF={() => downloadPDF(scores)}
+          onSkipToCoaching={() => {
+            // If user has email, migrate session; either way go to paywall
+            if (email && email.includes("@")) {
+              setSessionKey(email);
+              saveSession({
+                stage: "paywall", email, emailSubmitted: true,
+                persona: _personaStored, clinicalMode, sliderResponses,
+                scores, probingMessages, probingDone: true,
+              });
+            }
+            setStage("paywall");
+          }}
         />
       )}
 
@@ -1253,7 +1298,7 @@ function ProbingChat({ messages, input, loading, streaming, done, bottomRef, onI
 
 // ── RESULTS ────────────────────────────────────────────────────────────────
 
-function Results({ scores, modalities, onEmailCapture, onDownloadPDF }) {
+function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCoaching }) {
   const lowestDims = DIMENSIONS.filter(d => scores[d.id] >= 5);
   
   return (
@@ -1304,14 +1349,20 @@ function Results({ scores, modalities, onEmailCapture, onDownloadPDF }) {
         </div>
 
         <div style={styles.paywallTeaser}>
-          <p style={styles.teaserText}>
-            📄 Get your full PDF report with all 10 dimensions, modality recommendations, and narrative arc — free.
+          <button style={styles.primaryBtn} onClick={onSkipToCoaching}>
+            Start Coaching Session →
+          </button>
+          <p style={{ ...styles.teaserText, marginTop: "1.5rem" }}>
+            📄 Or get your full PDF report with all 10 dimensions and modality recommendations — free.
           </p>
-          <button style={styles.primaryBtn} onClick={onEmailCapture}>
+          <button
+            style={{ ...styles.primaryBtn, background: "transparent", border: "1px solid #c9a227", color: "#c9a227", marginTop: "0.25rem" }}
+            onClick={onEmailCapture}
+          >
             Get My Full Report →
           </button>
           <button
-            style={{ ...styles.primaryBtn, background: "transparent", border: "1px solid #c9a227", color: "#c9a227", marginTop: "0.5rem" }}
+            style={{ ...styles.primaryBtn, background: "transparent", border: "1px solid rgba(201, 162, 39, 0.4)", color: "rgba(201, 162, 39, 0.6)", marginTop: "0.5rem", fontSize: "0.85rem" }}
             onClick={onDownloadPDF}
           >
             Download PDF Preview
