@@ -624,13 +624,41 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     setChatLoading(false);
   };
 
+  const clearAllData = useCallback(() => {
+    // Remove all healing spiral keys from localStorage
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith("healing_spiral") || key.startsWith("hs_"))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    // Reset all state to defaults
+    activeSessionKey = SESSION_KEY_ANON;
+    setStageRaw("landing");
+    setPersonaRaw(null);
+    setClinicalMode(false);
+    setSliderResponses({});
+    setCurrentDimIdx(0);
+    setProbingMessages([]);
+    setProbingDone(false);
+    setScores(null);
+    setEmail("");
+    setEmailSubmitted(false);
+    setChatMessages([]);
+    setPreviousChatContext(null);
+    setUserMessageCount(0);
+    setPaymentVerified(false);
+  }, []);
+
   // ── RENDER ──────────────────────────────────────────────────────────────
 
   return (
     <div style={styles.root}>
       <div style={styles.grain} />
       
-      {stage === "landing" && <Landing onStart={() => setStage("persona")} onLogin={(loginEmail) => {
+      {stage === "landing" && <Landing onStart={() => setStage("persona")} onClearData={clearAllData} onLogin={(loginEmail) => {
         const key = emailHash(loginEmail.toLowerCase().trim());
         const existing = loadSession(key);
         if (existing && existing.scores) {
@@ -849,6 +877,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             setPaymentVerified(false);
             setStageRaw("paywall");
           }}
+          onClearData={clearAllData}
         />
       )}
 
@@ -884,10 +913,11 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
 
 // ── LANDING ────────────────────────────────────────────────────────────────
 
-function Landing({ onStart, onLogin }) {
+function Landing({ onStart, onLogin, onClearData }) {
   const [visible, setVisible] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [showLogin, setShowLogin] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => { setTimeout(() => setVisible(true), 100); }, []);
   return (
     <div style={{ ...styles.page, opacity: visible ? 1 : 0, transition: "opacity 1.2s ease" }}>
@@ -935,6 +965,43 @@ function Landing({ onStart, onLogin }) {
               Continue →
             </button>
           </form>
+        )}
+        {onClearData && (
+          <div style={{ marginTop: "2.5rem" }}>
+            {!confirmClear ? (
+              <button onClick={() => setConfirmClear(true)} style={{
+                background: "none", border: "none", color: "rgba(255,255,255,0.25)",
+                fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.75rem",
+                cursor: "pointer", letterSpacing: "0.05em",
+              }}>
+                Clear saved data
+              </button>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)" }}>
+                  This will erase your profile, scores, and chat history.
+                </span>
+                <div style={{ display: "flex", gap: "0.75rem" }}>
+                  <button onClick={() => { onClearData(); setConfirmClear(false); }} style={{
+                    background: "rgba(200,50,50,0.15)", border: "1px solid rgba(200,50,50,0.4)",
+                    color: "#e05050", padding: "0.35rem 1rem", borderRadius: 4,
+                    fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.8rem",
+                    cursor: "pointer", letterSpacing: "0.03em",
+                  }}>
+                    Yes, clear everything
+                  </button>
+                  <button onClick={() => setConfirmClear(false)} style={{
+                    background: "none", border: "1px solid rgba(255,255,255,0.15)",
+                    color: "rgba(255,255,255,0.4)", padding: "0.35rem 1rem", borderRadius: 4,
+                    fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.8rem",
+                    cursor: "pointer",
+                  }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -1289,7 +1356,7 @@ function Paywall({ onUnlock }) {
 
 // ── COACHING CHAT ──────────────────────────────────────────────────────────
 
-function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout }) {
+function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout }) {
   const topMods = getTopModalities(scores, 3);
   const chatInputRef = useRef(null);
   const isMobile = useIsMobile();
@@ -1359,6 +1426,9 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
           <div key={m.name} style={styles.sidebarMod}>{m.name}</div>
         ))}
       </div>
+      {onClearData && (
+        <ClearDataButton onClear={onClearData} />
+      )}
     </>
   );
 
@@ -1548,6 +1618,45 @@ function WorkingIndicator({ label = "Working on it…" }) {
       <span style={{ fontSize: "0.8rem", opacity: 0.5, fontStyle: "italic", letterSpacing: "0.03em" }}>
         {label}
       </span>
+    </div>
+  );
+}
+
+function ClearDataButton({ onClear }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <div style={{ marginTop: "auto", padding: "1rem 0.75rem", borderTop: "1px solid var(--border)" }}>
+      {!confirm ? (
+        <button onClick={() => setConfirm(true)} style={{
+          background: "none", border: "none", color: "rgba(255,255,255,0.2)",
+          fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.7rem",
+          cursor: "pointer", letterSpacing: "0.05em", width: "100%", textAlign: "center",
+        }}>
+          Clear all saved data
+        </button>
+      ) : (
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", marginBottom: "0.5rem" }}>
+            Erase profile, scores, and chat history?
+          </p>
+          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+            <button onClick={() => { onClear(); setConfirm(false); }} style={{
+              background: "rgba(200,50,50,0.12)", border: "1px solid rgba(200,50,50,0.35)",
+              color: "#e05050", padding: "0.25rem 0.7rem", borderRadius: 4,
+              fontFamily: "inherit", fontSize: "0.7rem", cursor: "pointer",
+            }}>
+              Clear
+            </button>
+            <button onClick={() => setConfirm(false)} style={{
+              background: "none", border: "1px solid rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.35)", padding: "0.25rem 0.7rem", borderRadius: 4,
+              fontFamily: "inherit", fontSize: "0.7rem", cursor: "pointer",
+            }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
