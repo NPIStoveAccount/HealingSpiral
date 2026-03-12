@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm run build:*)",
+      "Bash(unzip -o /Users/eli/Downloads/HealingSpiral_CoachHandoff.zip -d .)",
+      "Bash(npm --version)",
+      "Bash(node --version)",
+      "Bash(bun --version)",
+      "Bash(pnpm --version)",
+      "Bash(npx --version)",
+      "Bash(source ~/.nvm/nvm.sh)",
+      "Bash(nvm current)",
+      "Bash(chmod +x \"/Users/eli/Claude Sandbox/HealingSpiral/.claude/dev.sh\")",
+      "Bash(printenv)",
+      "Bash(npm install express cors dotenv resend jspdf jspdf-autotable)",
+      "Bash(npm install -D concurrently)",
+      "Bash(export PATH=\"/Users/eli/.nvm/versions/node/v22.15.0/bin:$PATH\")"
+    ]
+  }
+}
