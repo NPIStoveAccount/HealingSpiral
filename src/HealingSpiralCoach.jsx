@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
@@ -202,8 +202,10 @@ async function generatePDF(scores) {
     body: tableData,
     theme: "grid",
     headStyles: { fillColor: [201, 162, 39], textColor: [14, 12, 10] },
-    styles: { fontSize: 10 },
-    columnStyles: { 0: { cellWidth: 80 }, 1: { cellWidth: 50 }, 2: { cellWidth: 30, halign: "center" } },
+    styles: { fontSize: 10, cellPadding: 4 },
+    columnStyles: { 0: { cellWidth: "auto" }, 1: { cellWidth: 40 }, 2: { cellWidth: 28, halign: "center" } },
+    margin: { left: 14, right: 14 },
+    tableWidth: "auto",
   });
 
   // Growth edge
@@ -289,6 +291,20 @@ function clearSession() {
   try { localStorage.removeItem(activeSessionKey); } catch {}
 }
 
+// ── RESPONSIVE HOOK ───────────────────────────────────────────────────────
+
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < breakpoint : false
+  );
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 function usePersisted(key, defaultVal) {
   const [val, setVal] = useState(() => {
     const s = loadSession();
@@ -327,8 +343,21 @@ export default function HealingSpiralApp() {
   const [chatLoading, setChatLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [apiError, setApiError] = useState("");
+  const [toasts, setToasts] = useState([]);
+  const [emailSending, setEmailSending] = useState(false);
+  const [userMessageCount, setUserMessageCount] = usePersisted("userMessageCount", 0);
+  const [paymentVerified, setPaymentVerified] = usePersisted("paymentVerified", false);
   const chatBottomRef = useRef(null);
   const probingBottomRef = useRef(null);
+
+  const FREE_MESSAGE_LIMIT = 20;
+  const isMessageCapReached = !paymentVerified && userMessageCount >= FREE_MESSAGE_LIMIT;
+
+  const addToast = useCallback((message, type = "info") => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
+  }, []);
 
   // On mount: if anonymous session has an email, switch to email-keyed session
   useEffect(() => {
@@ -338,8 +367,31 @@ export default function HealingSpiralApp() {
       const keyed = loadSession();
       if (keyed && keyed.stage) {
         // Email-keyed session exists — it's already loaded via usePersisted
-        // since activeSessionKey was set before first render only if we move this to init
       }
+    }
+  }, []);
+
+  // On mount: detect return from Stripe Checkout
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    const cancelled = params.get("payment");
+    if (sessionId) {
+      fetch(`/api/checkout/verify?session_id=${sessionId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.paid) {
+            setPaymentVerified(true);
+            setUserMessageCount(0);
+            saveSession({ paymentVerified: true });
+            addToast("Payment successful! Unlimited coaching unlocked.", "success");
+          }
+        })
+        .catch(e => console.error("Payment verification error:", e));
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (cancelled === "cancelled") {
+      addToast("Payment was cancelled. You can try again anytime.", "info");
+      window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
 
@@ -423,6 +475,24 @@ You are doing a brief intake deepening — maximum 2 user exchanges. ${isLastExc
     }
   };
 
+  const initiateCheckout = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, returnUrl: window.location.origin }),
+      });
+      const data = await resp.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        addToast(data.error || "Couldn't start checkout. Please try again.", "error");
+      }
+    } catch (e) {
+      addToast("Payment service unavailable. Please try again later.", "error");
+    }
+  }, [email, addToast]);
+
   const startChat = useCallback(async () => {
     setStage("chat");
     // If session already has chat messages (restored), don't re-fire the opening
@@ -456,7 +526,8 @@ Open the coaching session with ONE specific question that picks up the thread di
   }, [persona, scores, probingMessages, clinicalMode, chatMessages.length]);
 
   const sendChatDirect = async (text) => {
-    if (chatLoading) return;
+    if (chatLoading || isMessageCapReached) return;
+    setUserMessageCount(c => c + 1);
     const userMsg = { role: "user", content: text };
     // Use functional updater to get latest chatMessages without stale closure
     let latestMsgs;
@@ -487,7 +558,8 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
 
   const sendChat = async () => {
     const inputVal = typeof chatInput === "string" ? chatInput : String(chatInput ?? "");
-    if (!inputVal.trim() || chatLoading) return;
+    if (!inputVal.trim() || chatLoading || isMessageCapReached) return;
+    setUserMessageCount(c => c + 1);
     const userMsg = { role: "user", content: inputVal };
     const newMsgs = [...chatMessages, userMsg];
     setChatMessages(newMsgs);
@@ -573,13 +645,14 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
         <EmailCapture
           email={email}
           onChange={setEmail}
+          loading={emailSending}
           onSubmit={async () => {
+            setEmailSending(true);
             setEmailSubmitted(true);
 
             // Check for returning user with this email
             const keyedSession = loadSession(emailHash(email.toLowerCase().trim()));
             if (keyedSession?.chatMessages?.length > 0) {
-              // Returning user — restore their coaching session
               setSessionKey(email);
               if (keyedSession.persona) setPersonaRaw(keyedSession.persona);
               if (keyedSession.scores) setScores(keyedSession.scores);
@@ -587,6 +660,7 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
               if (keyedSession.probingMessages) setProbingMessages(keyedSession.probingMessages);
               if (keyedSession.clinicalMode !== undefined) setClinicalMode(keyedSession.clinicalMode);
               setProbingDone(true);
+              setEmailSending(false);
               setStage("chat");
               return;
             }
@@ -599,23 +673,33 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
               scores, probingMessages, probingDone: true,
             });
 
-            // Generate PDF and send email (fire-and-forget)
+            // Generate PDF and send email with feedback
             try {
               const pdfBase64 = await generatePDF(scores);
-              fetch("/api/send-report", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  email,
-                  scores,
-                  dimensions: DIMENSIONS.map(d => ({ id: d.id, label: d.label, emoji: d.emoji, description: d.description })),
-                  tierLabels: TIER_LABELS,
-                  modalities: getTopModalities(scores, 5).map(m => ({ name: m.name, dimensions: m.dimensions })),
-                  pdfBase64,
-                }),
-              }).catch(e => console.error("Email send failed:", e));
-            } catch (e) { console.error("PDF/email error:", e); }
+              try {
+                const resp = await fetch("/api/send-report", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    email, scores,
+                    dimensions: DIMENSIONS.map(d => ({ id: d.id, label: d.label, emoji: d.emoji, description: d.description })),
+                    tierLabels: TIER_LABELS,
+                    modalities: getTopModalities(scores, 5).map(m => ({ name: m.name, dimensions: m.dimensions })),
+                    pdfBase64,
+                  }),
+                });
+                if (!resp.ok) throw new Error("Server returned " + resp.status);
+                addToast("Your report has been sent! Check your inbox.", "success");
+              } catch (e) {
+                console.error("Email send failed:", e);
+                addToast("Couldn't send report email. You can still download the PDF.", "error");
+              }
+            } catch (e) {
+              console.error("PDF generation error:", e);
+              addToast("Couldn't generate PDF. Your results are still saved.", "error");
+            }
 
+            setEmailSending(false);
             setStage("paywall");
           }}
         />
@@ -626,10 +710,20 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
       )}
 
       {stage === "chat" && apiError && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
-          background: "#7f1d1d", color: "#fca5a5", padding: "0.5rem 1rem",
-          fontSize: "0.75rem", fontFamily: "monospace", wordBreak: "break-all" }}>
-          ⚠️ Last error: {apiError} — <button onClick={() => setApiError("")} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", textDecoration: "underline" }}>dismiss</button>
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
+          background: "rgba(127, 29, 29, 0.95)", color: "#fca5a5",
+          padding: "0.75rem 1.25rem", fontSize: "0.85rem",
+          fontFamily: "'Cormorant Garamond', Georgia, serif",
+          display: "flex", alignItems: "center", gap: "0.75rem",
+          borderBottom: "1px solid rgba(252,165,165,0.3)",
+        }}>
+          <span>⚠️</span>
+          <span style={{ flex: 1 }}>Something went wrong connecting to the AI. Please try again.</span>
+          <button onClick={() => setApiError("")} style={{
+            background: "none", border: "none", color: "#fca5a5",
+            cursor: "pointer", fontFamily: "inherit", fontSize: "1.1rem",
+          }}>×</button>
         </div>
       )}
       {stage === "chat" && (
@@ -647,6 +741,11 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
           onPersonaChange={setPersona}
           clinicalMode={clinicalMode}
           onToggleClinical={() => setClinicalMode(c => !c)}
+          isMessageCapReached={isMessageCapReached}
+          userMessageCount={userMessageCount}
+          freeMessageLimit={FREE_MESSAGE_LIMIT}
+          paymentVerified={paymentVerified}
+          onInitiateCheckout={initiateCheckout}
           onRestart={() => {
             clearSession();
             setStageRaw("landing");
@@ -660,8 +759,37 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
             setEmail("");
             setEmailSubmitted(false);
             setChatMessages([]);
+            setUserMessageCount(0);
+            setPaymentVerified(false);
           }}
         />
+      )}
+
+      {toasts.length > 0 && (
+        <div style={{
+          position: "fixed", top: "1rem", right: "1rem", zIndex: 200,
+          display: "flex", flexDirection: "column", gap: "0.5rem", maxWidth: 380,
+        }}>
+          {toasts.map(t => (
+            <div key={t.id} style={{
+              background: t.type === "error" ? "rgba(127, 29, 29, 0.95)" : t.type === "success" ? "rgba(22, 101, 52, 0.95)" : "rgba(50, 50, 50, 0.95)",
+              color: t.type === "error" ? "#fca5a5" : t.type === "success" ? "#86efac" : "#e8e0d4",
+              padding: "0.75rem 1.25rem", borderRadius: 8, fontSize: "0.85rem",
+              fontFamily: "'Cormorant Garamond', Georgia, serif",
+              display: "flex", alignItems: "center", gap: "0.75rem",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)", animation: "fade-in 0.3s ease",
+              border: `1px solid ${t.type === "error" ? "rgba(252,165,165,0.3)" : t.type === "success" ? "rgba(134,239,172,0.3)" : "rgba(255,255,255,0.1)"}`,
+            }}>
+              <span>{t.type === "error" ? "⚠️" : t.type === "success" ? "✓" : "ℹ"}</span>
+              <span style={{ flex: 1 }}>{t.message}</span>
+              <button onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))} style={{
+                background: "none", border: "none",
+                color: t.type === "error" ? "#fca5a5" : t.type === "success" ? "#86efac" : "#e8e0d4",
+                cursor: "pointer", fontSize: "1rem", padding: "0 0.25rem",
+              }}>×</button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -702,12 +830,13 @@ function Landing({ onStart }) {
 
 function PersonaSelect({ onSelect }) {
   const [hovered, setHovered] = useState(null);
+  const isMobile = useIsMobile();
   return (
     <div style={styles.page}>
       <div style={styles.sectionInner}>
         <h2 style={styles.sectionTitle}>Choose Your Coach</h2>
         <p style={styles.sectionSub}>Your AI coach will accompany you through the assessment and into deeper work.</p>
-        <div style={styles.personaGrid}>
+        <div style={{ ...styles.personaGrid, gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))" }}>
           {PERSONAS.map(p => (
             <button
               key={p.id}
@@ -943,7 +1072,7 @@ function Results({ scores, modalities, onEmailCapture, onDownloadPDF }) {
 
 // ── EMAIL CAPTURE ──────────────────────────────────────────────────────────
 
-function EmailCapture({ email, onChange, onSubmit }) {
+function EmailCapture({ email, onChange, onSubmit, loading }) {
   return (
     <div style={styles.page}>
       <div style={styles.sectionInner}>
@@ -960,14 +1089,15 @@ function EmailCapture({ email, onChange, onSubmit }) {
             placeholder="your@email.com"
             value={email}
             onChange={e => onChange(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && email.includes("@") && onSubmit()}
+            onKeyDown={e => e.key === "Enter" && email.includes("@") && !loading && onSubmit()}
+            disabled={loading}
           />
           <button
-            style={{ ...styles.primaryBtn, marginTop: 0 }}
+            style={{ ...styles.primaryBtn, marginTop: 0, opacity: loading ? 0.6 : 1 }}
             onClick={onSubmit}
-            disabled={!email.includes("@")}
+            disabled={!email.includes("@") || loading}
           >
-            Send My Report →
+            {loading ? "Sending..." : "Send My Report →"}
           </button>
         </div>
         <p style={styles.emailMeta}>No spam. You can unsubscribe anytime.</p>
@@ -989,14 +1119,14 @@ function Paywall({ onUnlock }) {
           that holds your full Healing Spiral profile.
         </p>
         <div style={styles.pricingCard}>
-          <div style={styles.pricingBadge}>FOUNDING ACCESS</div>
-          <div style={styles.pricingPrice}>$0<span style={styles.pricingPer}> / session</span></div>
-          <p style={styles.pricingDesc}>Free during beta — your session uses your full profile.</p>
+          <div style={styles.pricingBadge}>FREE TO START</div>
+          <div style={styles.pricingPrice}>20<span style={styles.pricingPer}> free messages</span></div>
+          <p style={styles.pricingDesc}>Try the coaching experience free. Unlock unlimited access anytime.</p>
           <ul style={styles.featureList}>
             <li>✦ Full 10-dimension context</li>
             <li>✦ Modality recommendations woven in</li>
             <li>✦ Your chosen coach persona</li>
-            <li>✦ Unlimited messages this session</li>
+            <li>✦ 20 messages free, then pay to continue</li>
           </ul>
           <button style={{ ...styles.primaryBtn, width: "100%", marginTop: "1.5rem" }} onClick={onUnlock}>
             Enter the Coaching Session →
@@ -1009,86 +1139,133 @@ function Paywall({ onUnlock }) {
 
 // ── COACHING CHAT ──────────────────────────────────────────────────────────
 
-function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart }) {
+function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout }) {
   const topMods = getTopModalities(scores, 3);
   const chatInputRef = useRef(null);
+  const isMobile = useIsMobile();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Auto-close sidebar when switching from mobile to desktop
+  useEffect(() => { if (!isMobile) setSidebarOpen(false); }, [isMobile]);
+
   const handleSend = (prefill) => {
     if (prefill) { onSendDirect(prefill); }
     else { onSend(); }
     setTimeout(() => chatInputRef.current?.focus(), 50);
   };
-  return (
-    <div style={{ ...styles.page, flexDirection: "row", alignItems: "stretch", padding: 0 }}>
-      <div style={styles.sidebar}>
-        <div style={styles.sidebarHeader}>
-          <div style={styles.spiralGlyphSmall}>◎</div>
-          <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>Healing Spiral</span>
-        </div>
-        <div style={{ ...styles.sidebarPersona, borderBottom: '1px solid var(--border)' }}>
-          <div style={styles.sidebarLabel}>COACH VOICE</div>
-          {PERSONAS.map(p => (
-            <button
-              key={p.id}
-              onClick={() => onPersonaChange(p)}
-              style={{
-                display: "flex", alignItems: "center", gap: "0.4rem",
-                width: "100%", background: p.id === persona.id ? "rgba(201,162,39,0.15)" : "transparent",
-                border: p.id === persona.id ? "1px solid var(--gold)" : "1px solid transparent",
-                borderRadius: 4, padding: "0.35rem 0.5rem", cursor: "pointer",
-                color: "var(--text)", fontFamily: "inherit", marginBottom: "0.25rem",
-                transition: "all 0.15s",
-              }}
-            >
-              <span style={{ fontSize: "1rem" }}>{p.emoji}</span>
-              <span style={{ fontSize: "0.72rem", textAlign: "left", lineHeight: 1.3 }}>{p.name}</span>
-            </button>
-          ))}
-        </div>
-        <div style={{ ...styles.sidebarSection, borderBottom: '1px solid var(--border)' }}>
-          <div style={styles.sidebarLabel}>LANGUAGE</div>
-          <LanguageToggle clinical={clinicalMode} onToggle={onToggleClinical} sidebar />
-        </div>
-        <div style={styles.sidebarSection}>
-          <div style={styles.sidebarLabel}>YOUR PROFILE</div>
-          {DIMENSIONS.map(d => {
-            const tier = scores[d.id];
-            const pct = Math.max(8, ((7 - tier) / 6) * 100);
-            return (
-              <div key={d.id} style={styles.sidebarDimRow}>
-                <span style={{ fontSize: "0.7rem", opacity: 0.7, minWidth: 14 }}>{d.emoji}</span>
-                <div style={styles.sidebarBarBg}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: getTierColor(tier), borderRadius: 2 }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={styles.sidebarSection}>
-          <div style={styles.sidebarLabel}>TOP MODALITIES</div>
-          {topMods.map(m => (
-            <div key={m.name} style={styles.sidebarMod}>{m.name}</div>
-          ))}
-        </div>
-      </div>
 
-      <div style={styles.chatOuter}>
-        <div style={styles.chatHeader}>
+  const sidebarContent = (
+    <>
+      {isMobile && (
+        <div style={{ padding: "0.5rem 0.75rem", textAlign: "right", borderBottom: "1px solid var(--border)" }}>
+          <button onClick={() => setSidebarOpen(false)} style={{
+            background: "none", border: "none", color: "var(--text)",
+            fontSize: "1.2rem", cursor: "pointer",
+          }}>×</button>
+        </div>
+      )}
+      <div style={styles.sidebarHeader}>
+        <div style={styles.spiralGlyphSmall}>◎</div>
+        <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>Healing Spiral</span>
+      </div>
+      <div style={{ ...styles.sidebarPersona, borderBottom: '1px solid var(--border)' }}>
+        <div style={styles.sidebarLabel}>COACH VOICE</div>
+        {PERSONAS.map(p => (
+          <button key={p.id} onClick={() => { onPersonaChange(p); if (isMobile) setSidebarOpen(false); }}
+            style={{
+              display: "flex", alignItems: "center", gap: "0.4rem",
+              width: "100%", background: p.id === persona.id ? "rgba(201,162,39,0.15)" : "transparent",
+              border: p.id === persona.id ? "1px solid var(--gold)" : "1px solid transparent",
+              borderRadius: 4, padding: "0.35rem 0.5rem", cursor: "pointer",
+              color: "var(--text)", fontFamily: "inherit", marginBottom: "0.25rem", transition: "all 0.15s",
+            }}>
+            <span style={{ fontSize: "1rem" }}>{p.emoji}</span>
+            <span style={{ fontSize: "0.72rem", textAlign: "left", lineHeight: 1.3 }}>{p.name}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ ...styles.sidebarSection, borderBottom: '1px solid var(--border)' }}>
+        <div style={styles.sidebarLabel}>LANGUAGE</div>
+        <LanguageToggle clinical={clinicalMode} onToggle={onToggleClinical} sidebar />
+      </div>
+      <div style={styles.sidebarSection}>
+        <div style={styles.sidebarLabel}>YOUR PROFILE</div>
+        {DIMENSIONS.map(d => {
+          const tier = scores[d.id];
+          const pct = Math.max(8, ((7 - tier) / 6) * 100);
+          return (
+            <div key={d.id} style={styles.sidebarDimRow}>
+              <span style={{ fontSize: "0.7rem", opacity: 0.7, minWidth: 14 }}>{d.emoji}</span>
+              <div style={styles.sidebarBarBg}>
+                <div style={{ width: `${pct}%`, height: "100%", background: getTierColor(tier), borderRadius: 2 }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={styles.sidebarSection}>
+        <div style={styles.sidebarLabel}>TOP MODALITIES</div>
+        {topMods.map(m => (
+          <div key={m.name} style={styles.sidebarMod}>{m.name}</div>
+        ))}
+      </div>
+    </>
+  );
+
+  const restartBtnStyle = {
+    marginLeft: "auto", background: "transparent",
+    border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4,
+    color: "rgba(255,255,255,0.35)", fontSize: "0.65rem",
+    letterSpacing: "0.08em", textTransform: "uppercase",
+    padding: "0.2rem 0.5rem", cursor: "pointer", fontFamily: "inherit",
+  };
+
+  return (
+    <div style={{ ...styles.page, flexDirection: isMobile ? "column" : "row", alignItems: "stretch", padding: 0 }}>
+      {/* Mobile header */}
+      {isMobile && (
+        <div style={{
+          padding: "0.6rem 1rem", borderBottom: "1px solid var(--border)",
+          display: "flex", alignItems: "center", gap: "0.75rem",
+          background: "rgba(0,0,0,0.3)", flexShrink: 0,
+        }}>
+          <button onClick={() => setSidebarOpen(true)} style={{
+            background: "none", border: "1px solid var(--border)", borderRadius: 4,
+            color: "var(--text)", padding: "0.3rem 0.5rem", cursor: "pointer", fontSize: "1rem",
+          }}>☰</button>
           <div style={styles.spiralGlyphSmall}>◎</div>
           <span style={styles.chatHeaderTitle}>Coaching Session</span>
-          <button
-            onClick={onRestart}
-            title="Start over"
-            style={{
-              marginLeft: "auto", background: "transparent",
-              border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4,
-              color: "rgba(255,255,255,0.35)", fontSize: "0.7rem",
-              letterSpacing: "0.08em", textTransform: "uppercase",
-              padding: "0.25rem 0.6rem", cursor: "pointer", fontFamily: "inherit",
-            }}
-          >
-            ↺ Restart
-          </button>
+          <button onClick={onRestart} title="Start over" style={restartBtnStyle}>↺</button>
         </div>
+      )}
+
+      {/* Sidebar: fixed overlay on mobile, inline on desktop */}
+      {isMobile && sidebarOpen && (
+        <div onClick={() => setSidebarOpen(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40,
+        }} />
+      )}
+      {(!isMobile || sidebarOpen) && (
+        <div style={{
+          ...styles.sidebar,
+          ...(isMobile ? {
+            position: "fixed", top: 0, left: 0, bottom: 0,
+            width: 260, zIndex: 50, boxShadow: "4px 0 20px rgba(0,0,0,0.5)",
+            background: "var(--bg)",
+          } : {}),
+        }}>
+          {sidebarContent}
+        </div>
+      )}
+
+      <div style={{ ...styles.chatOuter, height: isMobile ? "calc(100dvh - 50px)" : "100dvh" }}>
+        {!isMobile && (
+          <div style={styles.chatHeader}>
+            <div style={styles.spiralGlyphSmall}>◎</div>
+            <span style={styles.chatHeaderTitle}>Coaching Session</span>
+            <button onClick={onRestart} title="Start over" style={{ ...restartBtnStyle, fontSize: "0.7rem", padding: "0.25rem 0.6rem" }}>↺ Restart</button>
+          </div>
+        )}
         <div style={styles.chatBody}>
           {messages.length === 0 && loading && !streaming && (
             <div style={{ padding: "2rem 1.5rem" }}>
@@ -1105,20 +1282,42 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         {!loading && messages.length > 0 && aiSignaledTransition(messages[messages.length - 1]?.content) && (
           <NudgeButton label="I'm ready" onClick={() => handleSend("I'm ready to continue.")} />
         )}
-        <div style={styles.chatInputRow}>
-          <input
-            ref={chatInputRef}
-            style={styles.chatInput}
-            value={input}
-            onChange={e => onInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder="What's on your mind… (Enter to send)"
-            disabled={loading}
-            maxLength={2000}
-            autoFocus
-          />
-          <button style={styles.sendBtn} onClick={() => handleSend()} disabled={loading || !input.trim()}>→</button>
-        </div>
+        {!isMessageCapReached && !paymentVerified && userMessageCount > (freeMessageLimit - 6) && userMessageCount < freeMessageLimit && (
+          <div style={{ textAlign: "center", padding: "0.25rem", fontSize: "0.7rem", opacity: 0.4, letterSpacing: "0.05em" }}>
+            {freeMessageLimit - userMessageCount} free messages remaining
+          </div>
+        )}
+        {isMessageCapReached ? (
+          <div style={{
+            padding: "1.5rem", textAlign: "center",
+            borderTop: "1px solid var(--border)", background: "rgba(201,162,39,0.05)",
+          }}>
+            <p style={{ fontSize: "0.95rem", marginBottom: "0.75rem", opacity: 0.9 }}>
+              You've used your {freeMessageLimit} free messages.
+            </p>
+            <p style={{ fontSize: "0.85rem", opacity: 0.6, marginBottom: "1rem" }}>
+              Unlock unlimited coaching to continue this session.
+            </p>
+            <button onClick={onInitiateCheckout} style={{ ...styles.primaryBtn, marginTop: 0, width: "100%" }}>
+              Unlock Unlimited Coaching →
+            </button>
+          </div>
+        ) : (
+          <div style={styles.chatInputRow}>
+            <input
+              ref={chatInputRef}
+              style={styles.chatInput}
+              value={input}
+              onChange={e => onInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
+              placeholder="What's on your mind… (Enter to send)"
+              disabled={loading}
+              maxLength={2000}
+              autoFocus
+            />
+            <button style={styles.sendBtn} onClick={() => handleSend()} disabled={loading || !input.trim()}>→</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1420,7 +1619,7 @@ const styles = {
   },
   chatOuter: {
     flex: 1, display: "flex", flexDirection: "column",
-    maxHeight: "100vh", height: "100vh", position: "relative", zIndex: 1,
+    maxHeight: "100dvh", height: "100dvh", position: "relative", zIndex: 1,
   },
   chatHeader: {
     padding: "1rem 1.5rem", borderBottom: "1px solid var(--border)",

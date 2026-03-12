@@ -30,7 +30,7 @@ router.post('/', async (req, res) => {
     const html = buildEmailHTML({ scores, dimensions, tierLabels, modalities });
 
     await resend.emails.send({
-      from: 'Healing Spiral <onboarding@resend.dev>',
+      from: `Healing Spiral <${process.env.FROM_EMAIL || 'onboarding@resend.dev'}>`,
       to: email,
       subject: 'Your Healing Spiral Profile',
       html,
