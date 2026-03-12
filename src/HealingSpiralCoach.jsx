@@ -339,6 +339,7 @@ export default function HealingSpiralApp() {
   const [email, setEmail] = usePersisted("email", "");
   const [emailSubmitted, setEmailSubmitted] = usePersisted("emailSubmitted", false);
   const [chatMessages, setChatMessages] = usePersisted("chatMessages", []);
+  const [chatSummary, setChatSummary] = usePersisted("chatSummary", "");
   const [previousChatContext, setPreviousChatContext] = usePersisted("previousChatContext", null);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -352,6 +353,8 @@ export default function HealingSpiralApp() {
   const probingBottomRef = useRef(null);
 
   const FREE_MESSAGE_LIMIT = 20;
+  const SUMMARIZE_THRESHOLD = 24;
+  const KEEP_RECENT = 8;
   const isMessageCapReached = !paymentVerified && userMessageCount >= FREE_MESSAGE_LIMIT;
 
   const addToast = useCallback((message, type = "info") => {
@@ -403,6 +406,32 @@ export default function HealingSpiralApp() {
   useEffect(() => {
     probingBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [probingMessages]);
+
+  // Summarize older messages and trim the history to keep context manageable
+  const summarizeAndTrim = useCallback(async (messages) => {
+    const toSummarize = messages.slice(0, messages.length - KEEP_RECENT);
+    const recent = messages.slice(-KEEP_RECENT);
+
+    const summaryInput = toSummarize.map(m => `${m.role}: ${m.content}`).join("\n\n");
+
+    const prompt = chatSummary
+      ? `Here is the existing summary of earlier conversation:\n${chatSummary}\n\nNow summarize this additional conversation, integrating it with the existing summary. Capture key themes, patterns, insights, breakthroughs, and where the conversation was heading. Write 3-5 sentences max. Use second person ("you").\n\n${summaryInput}`
+      : `Summarize this coaching conversation concisely. Capture key themes, patterns the person identified, insights or breakthroughs, and where the conversation was heading. Write 3-5 sentences max. Use second person ("you").\n\n${summaryInput}`;
+
+    try {
+      const summary = await callClaude(
+        [{ role: "user", content: prompt }],
+        "You are a concise summarizer. Output only the summary, nothing else.",
+        null
+      );
+      setChatSummary(summary);
+      setChatMessages(recent);
+      return recent;
+    } catch {
+      // If summarization fails, continue with full history
+      return messages;
+    }
+  }, [chatSummary]);
 
   // Start probing after questionnaire
   const startProbing = useCallback(async (responses) => {
@@ -541,6 +570,24 @@ Personalize each option using what they shared in the intake. Keep the tone warm
     setChatLoading(false);
   }, [persona, scores, probingMessages, clinicalMode, chatMessages.length, previousChatContext]);
 
+  const buildChatSystemPrompt = (topMods, continuationNote) => `${getSystemPrompt(persona, clinicalMode)}
+
+You are in an ongoing coaching session. The person has completed a Healing Spiral assessment. Key context: dimension scores: ${scores ? DIMENSIONS.map(d => d.label + ": tier " + scores[d.id]).join(", ") : "not available"}. Top modalities: ${topMods}. Continue the conversation — do NOT re-introduce yourself or re-ask opening questions. ${continuationNote}${chatSummary ? `
+
+CONVERSATION HISTORY SUMMARY (earlier in this session):
+${chatSummary}` : ""}${previousChatContext ? `
+
+CONTEXT FROM PREVIOUS SESSION (if they chose to pick up where they left off, use this):
+${previousChatContext}` : ""}
+
+IMPORTANT: Follow the person's lead. If they want to explore the Healing Spiral framework or understand their dimensions, teach and explain — don't redirect into exercises. If they want to work with emotions or body sensations, go there. If they want to explore patterns or what's stuck, do that. Match the mode they're asking for.
+
+THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
+- The Relational Field is the ground — safe attuned connection that makes all other healing possible
+- Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
+- Three orthogonal dimensions operate independently: Energetic Reorganization, Shadow Integration, Nondual View
+- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.`;
+
   const sendChatDirect = async (text) => {
     if (chatLoading || isMessageCapReached) return;
     setUserMessageCount(c => c + 1);
@@ -554,23 +601,14 @@ Personalize each option using what they shared in the intake. Keep the tone warm
     setChatInput("");
     setChatLoading(true);
     const topMods = getTopModalities(scores, 3).map(m => m.name).join(", ");
-    const systemPrompt = `${getSystemPrompt(persona, clinicalMode)}
-
-You are in an ongoing coaching session. The person has completed a Healing Spiral assessment. Key context: dimension scores: ${scores ? DIMENSIONS.map(d => d.label + ": tier " + scores[d.id]).join(", ") : "not available"}. Top modalities: ${topMods}. Continue the conversation — do NOT re-introduce yourself or re-ask opening questions. Pick up exactly where the conversation left off.${previousChatContext ? `
-
-CONTEXT FROM PREVIOUS SESSION (if they chose to pick up where they left off, use this):
-${previousChatContext}` : ""}
-
-IMPORTANT: Follow the person's lead. If they want to explore the Healing Spiral framework or understand their dimensions, teach and explain — don't redirect into exercises. If they want to work with emotions or body sensations, go there. If they want to explore patterns or what's stuck, do that. Match the mode they're asking for.
-
-THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
-- The Relational Field is the ground — safe attuned connection that makes all other healing possible
-- Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
-- Three orthogonal dimensions operate independently: Energetic Reorganization, Shadow Integration, Nondual View
-- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.`;
+    const systemPrompt = buildChatSystemPrompt(topMods, "Pick up exactly where the conversation left off.");
     // latestMsgs may be undefined if setChatMessages batched — fall back to snapshot
     setTimeout(async () => {
-      const msgs = latestMsgs || [...chatMessages, userMsg];
+      let msgs = latestMsgs || [...chatMessages, userMsg];
+      // Summarize and trim if conversation is getting long
+      if (msgs.length > SUMMARIZE_THRESHOLD) {
+        msgs = await summarizeAndTrim(msgs);
+      }
       try {
         const aiText = await callClaude(msgs.map(m => ({ role: m.role, content: m.content })), systemPrompt, (p) => setStreamingText(p));
         setStreamingText("");
@@ -588,26 +626,18 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     if (!inputVal.trim() || chatLoading || isMessageCapReached) return;
     setUserMessageCount(c => c + 1);
     const userMsg = { role: "user", content: inputVal };
-    const newMsgs = [...chatMessages, userMsg];
+    let newMsgs = [...chatMessages, userMsg];
     setChatMessages(newMsgs);
     setChatInput("");
     setChatLoading(true);
 
+    // Summarize and trim if conversation is getting long
+    if (newMsgs.length > SUMMARIZE_THRESHOLD) {
+      newMsgs = await summarizeAndTrim(newMsgs);
+    }
+
     const topMods = getTopModalities(scores, 3).map(m => m.name).join(", ");
-    const systemPrompt = `${getSystemPrompt(persona, clinicalMode)}
-
-You are in an ongoing coaching session. The person has completed a Healing Spiral assessment. Key context: dimension scores: ${scores ? DIMENSIONS.map(d => d.label + ": tier " + scores[d.id]).join(", ") : "not available"}. Top modalities: ${topMods}. Continue the conversation — do NOT re-introduce yourself or re-ask opening questions. Stay present with what they just said.${previousChatContext ? `
-
-CONTEXT FROM PREVIOUS SESSION (if they chose to pick up where they left off, use this):
-${previousChatContext}` : ""}
-
-IMPORTANT: Follow the person's lead. If they want to explore the Healing Spiral framework or understand their dimensions, teach and explain — don't redirect into exercises. If they want to work with emotions or body sensations, go there. If they want to explore patterns or what's stuck, do that. Match the mode they're asking for.
-
-THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
-- The Relational Field is the ground — safe attuned connection that makes all other healing possible
-- Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
-- Three orthogonal dimensions operate independently: Energetic Reorganization, Shadow Integration, Nondual View
-- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.`;
+    const systemPrompt = buildChatSystemPrompt(topMods, "Stay present with what they just said.");
 
     let aiText = "";
     try {
@@ -647,6 +677,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     setEmail("");
     setEmailSubmitted(false);
     setChatMessages([]);
+    setChatSummary("");
     setPreviousChatContext(null);
     setUserMessageCount(0);
     setPaymentVerified(false);
@@ -866,13 +897,17 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           onInitiateCheckout={initiateCheckout}
           onRestart={() => {
             // Save previous chat context so the next session can offer "pick up where we left off"
+            // Include the summary if we have one, plus the last 6 messages
+            const summaryPart = chatSummary ? `[Summary of earlier conversation: ${chatSummary}]\n` : "";
             if (chatMessages.length > 1) {
-              // Keep last 6 messages as context (enough to capture the thread)
               const recentMsgs = chatMessages.slice(-6).map(m => `${m.role}: ${m.content}`).join("\n");
-              setPreviousChatContext(recentMsgs);
+              setPreviousChatContext(summaryPart + recentMsgs);
+            } else if (chatSummary) {
+              setPreviousChatContext(summaryPart);
             }
             // Preserve profile (scores, persona, email, probing) — only reset chat
             setChatMessages([]);
+            setChatSummary("");
             setUserMessageCount(0);
             setPaymentVerified(false);
             setStageRaw("paywall");
