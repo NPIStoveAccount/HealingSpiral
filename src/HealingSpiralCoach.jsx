@@ -57,27 +57,27 @@ const MODALITIES = [
 ];
 
 const PERSONAS = [
-  { id: "warm", name: "The Attuned Companion", emoji: "🌿",
-    desc: "Warm, embodied, present — meets you in felt sense",
-    systemPrompt: `You are a warm, somatically-attuned healing coach deeply versed in the Healing Spiral framework. Your presence is gentle, embodied, and fully present. You track both what is said and what is felt. You slow down to meet what's alive. You ask one question at a time, with space. You never rush toward solution. You speak from the body — noticing breath, tension, aliveness. You hold the person as a whole ecosystem.` },
-  { id: "peer", name: "The Framework Peer", emoji: "🧠",
-    desc: "Intellectually rigorous, framework-fluent, challenges you",
-    systemPrompt: `You are a framework-fluent intellectual peer coaching through the Healing Spiral. You hold the full 10-dimension map with precision: the relational field as ground, the six-dimension reciprocal cascade (capacity building → physiological completion → affect metabolization → differentiation → implicit model updating → identity reorganization), and three orthogonal dimensions (energetic reorganization, shadow integration, nondual view). You speak frankly, challenge assumptions, and help the person think clearly about where they actually are versus where they think they are. You bring conceptual rigor without losing the person in abstraction.` },
   { id: "direct", name: "The Straight Shooter", emoji: "⚡",
     desc: "No-fluff, outcome-focused, cuts to what matters",
     systemPrompt: `You are a direct, outcome-focused healing coach who uses the Healing Spiral framework with precision. No fluff. No spiritual bypass. You help people identify exactly where they're stuck, what dimension of the Spiral it maps to, and what the most leverage-point intervention would be. You ask sharp questions. You name patterns directly. You trust the person to handle honesty. You are warm but you don't waste time. You help people move.` },
+  { id: "warm", name: "The Attuned Companion", emoji: "🌿",
+    desc: "Warm, embodied, present — meets you in felt sense",
+    systemPrompt: `You are a warm, deeply attuned healing coach versed in the Healing Spiral framework. Your presence is gentle and fully present. You track both what is said and what is felt. You ask one question at a time, with space. You never rush toward solution. You hold the person as a whole ecosystem. You can work somatically when the person wants body-based exploration, but you are equally skilled at teaching the framework, exploring patterns intellectually, sitting with emotions, or helping someone think through what's stuck. You follow the person's lead on what mode of exploration they want.` },
+  { id: "peer", name: "The Framework Peer", emoji: "🧠",
+    desc: "Intellectually rigorous, framework-fluent, challenges you",
+    systemPrompt: `You are a framework-fluent intellectual peer coaching through the Healing Spiral. You hold the full 10-dimension map with precision: the relational field as ground, the six-dimension reciprocal cascade (capacity building → physiological completion → affect metabolization → differentiation → implicit model updating → identity reorganization), and three orthogonal dimensions (energetic reorganization, shadow integration, nondual view). You speak frankly, challenge assumptions, and help the person think clearly about where they actually are versus where they think they are. You bring conceptual rigor without losing the person in abstraction.` },
 ];
 
 function aiSignaledTransition(text) {
   if (!text) return false;
   const lower = text.toLowerCase();
   const triggers = [
-    "generate your", "generating your", "pull together", "putting together",
-    "full profile", "let me show", "let me now", "moving on", "head to",
-    "ready to view", "ready to see", "ready for you", "here it is",
-    "take you to", "take a look", "profile now", "building your",
-    "creating your", "preparing your", "enough to generate", "enough now",
-    "shall we begin", "begin our session", "start our session",
+    "generate your profile", "generating your profile",
+    "pull together your profile", "putting together your profile",
+    "your full profile is ready", "view your full profile",
+    "building your profile", "creating your profile", "preparing your profile",
+    "enough to generate your profile", "enough now to build",
+    "let me put your profile together",
   ];
   return triggers.some(t => lower.includes(t));
 }
@@ -339,6 +339,7 @@ export default function HealingSpiralApp() {
   const [email, setEmail] = usePersisted("email", "");
   const [emailSubmitted, setEmailSubmitted] = usePersisted("emailSubmitted", false);
   const [chatMessages, setChatMessages] = usePersisted("chatMessages", []);
+  const [previousChatContext, setPreviousChatContext] = usePersisted("previousChatContext", null);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -469,8 +470,8 @@ You are doing a brief intake deepening — maximum 2 user exchanges. ${isLastExc
     setProbingMessages(updated);
     setProbingLoading(false);
 
-    // Trigger done if token present OR AI used wrap-up language
-    if (hasToken || aiSignaledTransition(cleanText)) {
+    // Trigger done if token present OR (last exchange AND AI used wrap-up language)
+    if (hasToken || (isLastExchange && aiSignaledTransition(cleanText))) {
       setProbingDone(true);
     }
   };
@@ -512,7 +513,22 @@ CONTEXT FROM INTAKE:
 - Top recommended modalities: ${topMods}
 - Intake conversation: ${probingMessages.map(m => `${m.role}: ${m.content}`).join(" | ")}
 
-Open the coaching session with ONE specific question that picks up the thread directly from what they shared in the intake. Do not ask "what's alive for you" or any generic opener. Reference something concrete they said. Be warm and specific.`;
+${previousChatContext ? `PREVIOUS SESSION CONTEXT (the person has been here before and restarted):
+${previousChatContext}
+
+Open the coaching session by briefly acknowledging they're back. Offer a numbered list of directions — the FIRST option should always be to pick up where they left off, referencing the specific topic from their previous session. Then offer these additional options:
+2. Explore the Healing Spiral framework itself — understand how the 10 dimensions map to their situation
+3. Work with something that feels alive or present right now
+4. Dig into something that feels stuck or repeating
+5. Look at what might be being avoided or pushed away
+6. Go deeper on a specific dimension from their profile (pick the one most relevant — name it and briefly say why)` :
+`Open the coaching session by briefly acknowledging something specific from their intake, then offer 5 directions they could explore — framed as a numbered list. The five options should always be variations of:
+1. Explore the Healing Spiral framework itself — understand how the 10 dimensions map to their situation, what their scores mean, and how the dimensions interact
+2. Work with something that feels alive or present right now
+3. Dig into something that feels stuck or repeating
+4. Look at what might be being avoided or pushed away
+5. Go deeper on a specific dimension from their profile (pick the one most relevant to what they shared — name it and briefly say why)`}
+Personalize each option using what they shared in the intake. Keep the tone warm but efficient — the user has limited messages, so help them choose a focus quickly rather than diving straight into an exercise.`;
 
     let aiText = "";
     try {
@@ -523,7 +539,7 @@ Open the coaching session with ONE specific question that picks up the thread di
     setStreamingText("");
     setChatMessages([{ role: "assistant", content: aiText }]);
     setChatLoading(false);
-  }, [persona, scores, probingMessages, clinicalMode, chatMessages.length]);
+  }, [persona, scores, probingMessages, clinicalMode, chatMessages.length, previousChatContext]);
 
   const sendChatDirect = async (text) => {
     if (chatLoading || isMessageCapReached) return;
@@ -540,7 +556,18 @@ Open the coaching session with ONE specific question that picks up the thread di
     const topMods = getTopModalities(scores, 3).map(m => m.name).join(", ");
     const systemPrompt = `${getSystemPrompt(persona, clinicalMode)}
 
-You are in an ongoing coaching session. The person has completed a Healing Spiral assessment. Key context: dimension scores: ${scores ? DIMENSIONS.map(d => d.label + ": tier " + scores[d.id]).join(", ") : "not available"}. Top modalities: ${topMods}. Continue the conversation — do NOT re-introduce yourself or re-ask opening questions. Pick up exactly where the conversation left off.`;
+You are in an ongoing coaching session. The person has completed a Healing Spiral assessment. Key context: dimension scores: ${scores ? DIMENSIONS.map(d => d.label + ": tier " + scores[d.id]).join(", ") : "not available"}. Top modalities: ${topMods}. Continue the conversation — do NOT re-introduce yourself or re-ask opening questions. Pick up exactly where the conversation left off.${previousChatContext ? `
+
+CONTEXT FROM PREVIOUS SESSION (if they chose to pick up where they left off, use this):
+${previousChatContext}` : ""}
+
+IMPORTANT: Follow the person's lead. If they want to explore the Healing Spiral framework or understand their dimensions, teach and explain — don't redirect into exercises. If they want to work with emotions or body sensations, go there. If they want to explore patterns or what's stuck, do that. Match the mode they're asking for.
+
+THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
+- The Relational Field is the ground — safe attuned connection that makes all other healing possible
+- Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
+- Three orthogonal dimensions operate independently: Energetic Reorganization, Shadow Integration, Nondual View
+- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.`;
     // latestMsgs may be undefined if setChatMessages batched — fall back to snapshot
     setTimeout(async () => {
       const msgs = latestMsgs || [...chatMessages, userMsg];
@@ -569,7 +596,18 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
     const topMods = getTopModalities(scores, 3).map(m => m.name).join(", ");
     const systemPrompt = `${getSystemPrompt(persona, clinicalMode)}
 
-You are in an ongoing coaching session. The person has completed a Healing Spiral assessment. Key context: dimension scores: ${scores ? DIMENSIONS.map(d => d.label + ": tier " + scores[d.id]).join(", ") : "not available"}. Top modalities: ${topMods}. Continue the conversation — do NOT re-introduce yourself or re-ask opening questions. Stay present with what they just said. Reference the framework when helpful but don't be mechanical about it.`;
+You are in an ongoing coaching session. The person has completed a Healing Spiral assessment. Key context: dimension scores: ${scores ? DIMENSIONS.map(d => d.label + ": tier " + scores[d.id]).join(", ") : "not available"}. Top modalities: ${topMods}. Continue the conversation — do NOT re-introduce yourself or re-ask opening questions. Stay present with what they just said.${previousChatContext ? `
+
+CONTEXT FROM PREVIOUS SESSION (if they chose to pick up where they left off, use this):
+${previousChatContext}` : ""}
+
+IMPORTANT: Follow the person's lead. If they want to explore the Healing Spiral framework or understand their dimensions, teach and explain — don't redirect into exercises. If they want to work with emotions or body sensations, go there. If they want to explore patterns or what's stuck, do that. Match the mode they're asking for.
+
+THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
+- The Relational Field is the ground — safe attuned connection that makes all other healing possible
+- Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
+- Three orthogonal dimensions operate independently: Energetic Reorganization, Shadow Integration, Nondual View
+- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.`;
 
     let aiText = "";
     try {
@@ -592,7 +630,59 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
     <div style={styles.root}>
       <div style={styles.grain} />
       
-      {stage === "landing" && <Landing onStart={() => setStage("persona")} />}
+      {stage === "landing" && <Landing onStart={() => setStage("persona")} onLogin={(loginEmail) => {
+        const key = emailHash(loginEmail.toLowerCase().trim());
+        const existing = loadSession(key);
+        if (existing && existing.scores) {
+          // Returning user — restore their session
+          setSessionKey(loginEmail);
+          setEmail(loginEmail);
+          setEmailSubmitted(true);
+          if (existing.persona) setPersonaRaw(existing.persona);
+          if (existing.scores) setScores(existing.scores);
+          if (existing.probingMessages) setProbingMessages(existing.probingMessages);
+          if (existing.clinicalMode !== undefined) setClinicalMode(existing.clinicalMode);
+          setProbingDone(true);
+          setStage("returning");
+        } else {
+          // New user — just pre-fill email and start assessment
+          setEmail(loginEmail);
+          setStage("persona");
+        }
+      }} />}
+
+      {stage === "returning" && (
+        <ReturningUser
+          email={email}
+          scores={scores}
+          onContinueChat={() => {
+            const existing = loadSession();
+            if (existing?.chatMessages?.length > 0) {
+              setChatMessages(existing.chatMessages);
+              setUserMessageCount(existing.userMessageCount || 0);
+              setPaymentVerified(existing.paymentVerified || false);
+              setStage("chat");
+            } else {
+              setChatMessages([]);
+              setUserMessageCount(0);
+              setPaymentVerified(false);
+              setStage("paywall");
+            }
+          }}
+          onNewAssessment={() => {
+            // Keep email, clear assessment data
+            setSliderResponses({});
+            setCurrentDimIdx(0);
+            setProbingMessages([]);
+            setProbingDone(false);
+            setScores(null);
+            setChatMessages([]);
+            setUserMessageCount(0);
+            setPaymentVerified(false);
+            setStage("persona");
+          }}
+        />
+      )}
       
       {stage === "persona" && (
         <PersonaSelect onSelect={(p) => { setPersona(p); setStage("questionnaire"); }} />
@@ -747,20 +837,17 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
           paymentVerified={paymentVerified}
           onInitiateCheckout={initiateCheckout}
           onRestart={() => {
-            clearSession();
-            setStageRaw("landing");
-            setPersonaRaw(null);
-            setClinicalMode(false);
-            setSliderResponses({});
-            setCurrentDimIdx(0);
-            setProbingMessages([]);
-            setProbingDone(false);
-            setScores(null);
-            setEmail("");
-            setEmailSubmitted(false);
+            // Save previous chat context so the next session can offer "pick up where we left off"
+            if (chatMessages.length > 1) {
+              // Keep last 6 messages as context (enough to capture the thread)
+              const recentMsgs = chatMessages.slice(-6).map(m => `${m.role}: ${m.content}`).join("\n");
+              setPreviousChatContext(recentMsgs);
+            }
+            // Preserve profile (scores, persona, email, probing) — only reset chat
             setChatMessages([]);
             setUserMessageCount(0);
             setPaymentVerified(false);
+            setStageRaw("paywall");
           }}
         />
       )}
@@ -797,8 +884,10 @@ You are in an ongoing coaching session. The person has completed a Healing Spira
 
 // ── LANDING ────────────────────────────────────────────────────────────────
 
-function Landing({ onStart }) {
+function Landing({ onStart, onLogin }) {
   const [visible, setVisible] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [showLogin, setShowLogin] = useState(false);
   useEffect(() => { setTimeout(() => setVisible(true), 100); }, []);
   return (
     <div style={{ ...styles.page, opacity: visible ? 1 : 0, transition: "opacity 1.2s ease" }}>
@@ -821,6 +910,67 @@ function Landing({ onStart }) {
           Begin Your Assessment →
         </button>
         <p style={styles.landingMeta}>Free assessment · AI coaching · 10 minutes</p>
+        {!showLogin ? (
+          <button onClick={() => setShowLogin(true)} style={{
+            background: "none", border: "none", color: "var(--gold)",
+            fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.9rem",
+            cursor: "pointer", marginTop: "1.5rem", opacity: 0.7,
+            textDecoration: "underline", textUnderlineOffset: "3px",
+          }}>
+            Already have a profile? Sign in
+          </button>
+        ) : (
+          <form onSubmit={e => { e.preventDefault(); if (loginEmail.trim()) onLogin(loginEmail.trim()); }} style={{
+            marginTop: "1.5rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", width: "100%", maxWidth: 380,
+          }}>
+            <input
+              type="email"
+              value={loginEmail}
+              onChange={e => setLoginEmail(e.target.value)}
+              placeholder="your@email.com"
+              autoFocus
+              style={{ ...styles.emailInput, width: "100%" }}
+            />
+            <button type="submit" style={{ ...styles.primaryBtn, width: "100%", marginTop: "0.25rem", padding: "0.7rem 1.5rem", fontSize: "0.9rem" }}>
+              Continue →
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── RETURNING USER ────────────────────────────────────────────────────────
+
+function ReturningUser({ email, scores, onContinueChat, onNewAssessment }) {
+  const topDims = scores ? DIMENSIONS.filter(d => scores[d.id] && scores[d.id] <= 3).slice(0, 3) : [];
+  return (
+    <div style={styles.page}>
+      <div style={styles.sectionInner}>
+        <div style={styles.spiralGlyph}>◎</div>
+        <h2 style={styles.sectionTitle}>Welcome Back</h2>
+        <p style={styles.sectionSub}>
+          We found your Healing Spiral profile{email ? ` for ${email}` : ""}.
+        </p>
+        {topDims.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "center", margin: "1rem 0" }}>
+            {topDims.map(d => (
+              <span key={d.id} style={styles.dimChip}>{d.emoji} {d.label}</span>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%", maxWidth: 380, marginTop: "1.5rem" }}>
+          <button style={styles.primaryBtn} onClick={onContinueChat}>
+            Continue Coaching →
+          </button>
+          <button onClick={onNewAssessment} style={{
+            ...styles.primaryBtn, background: "transparent",
+            border: "1px solid var(--gold)", color: "var(--gold)",
+          }}>
+            Start New Assessment
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1287,6 +1437,31 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
             {freeMessageLimit - userMessageCount} free messages remaining
           </div>
         )}
+        {(() => {
+          if (loading || !messages.length) return null;
+          const lastMsg = messages[messages.length - 1];
+          if (!lastMsg || lastMsg.role !== "assistant") return null;
+          const opts = parseNumberedOptions(lastMsg.content);
+          if (!opts) return null;
+          return (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", padding: "0.5rem 1rem", borderTop: "1px solid var(--border)" }}>
+              {opts.map((opt, i) => (
+                <button key={i} onClick={() => handleSend(opt)} style={{
+                  background: "transparent",
+                  borderWidth: "1px", borderStyle: "solid", borderColor: "var(--gold)",
+                  color: "var(--gold)", padding: "0.4rem 0.85rem", borderRadius: "999px",
+                  fontSize: "0.78rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+                  cursor: "pointer", transition: "all 0.2s", letterSpacing: "0.02em",
+                }}
+                onMouseEnter={e => { e.target.style.background = "var(--gold)"; e.target.style.color = "#1a1208"; }}
+                onMouseLeave={e => { e.target.style.background = "transparent"; e.target.style.color = "var(--gold)"; }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
         {isMessageCapReached ? (
           <div style={{
             padding: "1.5rem", textAlign: "center",
@@ -1393,6 +1568,21 @@ function NudgeButton({ label, onClick }) {
       </button>
     </div>
   );
+}
+
+function parseNumberedOptions(text) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const options = [];
+  const optionRegex = /^\d+\.\s+\*{0,2}(.+?)\*{0,2}\s*[—–-]\s*/;
+  for (const line of lines) {
+    const match = line.match(optionRegex);
+    if (match) {
+      const label = match[1].replace(/\*+/g, "").trim();
+      options.push(label);
+    }
+  }
+  return options.length >= 2 ? options : null;
 }
 
 function ChatBubble({ role, content, streaming }) {
@@ -1535,7 +1725,7 @@ const styles = {
     color: "var(--text)",
   },
   personaCardHover: {
-    background: "rgba(201,162,39,0.1)", borderColor: "var(--gold)",
+    background: "rgba(201,162,39,0.1)", border: "1px solid var(--gold)",
     transform: "translateY(-2px)",
   },
   personaEmoji: { fontSize: "2rem", marginBottom: "0.5rem" },
