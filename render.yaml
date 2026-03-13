@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: healing-spiral-coach
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVER_PORT
+        value: "10000"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
