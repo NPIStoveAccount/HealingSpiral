@@ -123,9 +123,13 @@ async function callClaude(messages, systemPrompt, onChunk) {
     return mockClaude(messages, systemPrompt, onChunk);
   }
 
+  const hdrs = { "Content-Type": "application/json" };
+  const token = localStorage.getItem('hs_auth_token');
+  if (token) hdrs['Authorization'] = `Bearer ${token}`;
+
   const response = await fetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: hdrs,
     body: JSON.stringify({
       messages,
       systemPrompt,
@@ -359,6 +363,83 @@ export default function HealingSpiralApp() {
   const probingBottomRef = useRef(null);
   const socraticBottomRef = useRef(null);
 
+  // ── AUTH STATE ──
+  const [authToken, setAuthToken] = useState(() => {
+    try { return localStorage.getItem('hs_auth_token') || null; } catch { return null; }
+  });
+  const [authUser, setAuthUser] = useState(null);
+  const [authSubscription, setAuthSubscription] = useState(null);
+
+  const authHeaders = useCallback(() => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    return headers;
+  }, [authToken]);
+
+  const saveAuthToken = useCallback((token) => {
+    setAuthToken(token);
+    if (token) localStorage.setItem('hs_auth_token', token);
+    else localStorage.removeItem('hs_auth_token');
+  }, []);
+
+  // Validate token on mount
+  useEffect(() => {
+    if (!authToken) return;
+    fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        setAuthUser(data.user);
+        setAuthSubscription(data.subscription);
+        if (data.paymentVerified) setPaymentVerified(true);
+        if (data.messageCount) setUserMessageCount(data.messageCount);
+      })
+      .catch(() => { saveAuthToken(null); setAuthUser(null); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Analytics helper (fire-and-forget)
+  const trackEvent = useCallback((event_type, metadata = {}) => {
+    fetch('/api/analytics/event', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ event_type, metadata }),
+    }).catch(() => {});
+  }, [authHeaders]);
+
+  // Global error tracking
+  useEffect(() => {
+    const handleError = (event) => {
+      trackEvent('client_error', { message: event.message, filename: event.filename, lineno: event.lineno });
+    };
+    const handleRejection = (event) => {
+      trackEvent('client_error', { message: event.reason?.message || String(event.reason), type: 'unhandledrejection' });
+    };
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, [trackEvent]);
+
+  // Session sync (debounced, for authenticated users)
+  const syncTimerRef = useRef(null);
+  useEffect(() => {
+    if (!authToken || !scores) return;
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      fetch('/api/sessions/current', {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          scores, persona: persona?.id, clinicalMode,
+          chatMessages: chatMessages.slice(-50), // Keep last 50 messages
+          chatSummary, messageCount: userMessageCount,
+        }),
+      }).catch(() => {});
+    }, 5000);
+    return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current); };
+  }, [authToken, scores, chatMessages, userMessageCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const FREE_MESSAGE_LIMIT = 20;
   const SUMMARIZE_THRESHOLD = 24;
   const KEEP_RECENT = 8;
@@ -586,13 +667,49 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
     if (scoresMatch) {
       try {
         const parsed = JSON.parse(scoresMatch[1]);
-        // Validate we have all dimensions
-        const hasAll = DIMENSIONS.every(d => typeof parsed[d.id] === "number");
-        if (hasAll) {
+        // Validate all 10 dimensions present with values 1-7
+        const validDimensions = DIMENSIONS.filter(d => {
+          const v = parsed[d.id];
+          return typeof v === "number" && v >= 1 && v <= 7;
+        });
+        if (validDimensions.length === DIMENSIONS.length) {
           setScores(parsed);
           setProbingMessages(updated); // Store socratic conversation as probing context
           setProbingDone(true);
           setTimeout(() => setStage("results"), 1500);
+        } else {
+          // Retry: ask AI to provide complete scores
+          const missing = DIMENSIONS.filter(d => {
+            const v = parsed[d.id];
+            return !(typeof v === "number" && v >= 1 && v <= 7);
+          }).map(d => d.id);
+          console.warn("Incomplete scores, missing:", missing);
+          setSocraticLoading(true);
+          const retryMsgs = [...updated, { role: "user", content: `[SYSTEM: Your score output was incomplete — missing or invalid values for: ${missing.join(", ")}. Please provide the complete scores token with all 10 dimensions rated 1-7. Do not show it to me, just append it to a brief closing remark.]` }];
+          try {
+            let retryText = await callClaude(retryMsgs, socraticSystemPrompt, (partial) => setStreamingText(partial));
+            const retryMatch = retryText.match(/\[SCORES:\s*(\{[^}]+\})\s*\]/);
+            setStreamingText("");
+            if (retryMatch) {
+              const retryParsed = JSON.parse(retryMatch[1]);
+              const retryValid = DIMENSIONS.every(d => {
+                const v = retryParsed[d.id];
+                return typeof v === "number" && v >= 1 && v <= 7;
+              });
+              if (retryValid) {
+                const retryClean = retryText.replace(/\[SCORES:\s*\{[^}]+\}\s*\]/g, "").trim();
+                const finalMsgs = [...updated, { role: "assistant", content: retryClean }];
+                setSocraticMessages(finalMsgs);
+                setScores(retryParsed);
+                setProbingMessages(finalMsgs);
+                setProbingDone(true);
+                setTimeout(() => setStage("results"), 1500);
+              }
+            }
+          } catch (e) {
+            console.error("Score retry failed:", e);
+          }
+          setSocraticLoading(false);
         }
       } catch (e) {
         console.error("Failed to parse socratic scores:", e);
@@ -601,10 +718,11 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
   };
 
   const initiateCheckout = useCallback(async (plan = "subscription") => {
+    trackEvent('checkout_initiated', { plan });
     try {
       const resp = await fetch("/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ email, returnUrl: window.location.origin, plan }),
       });
       const data = await resp.json();
@@ -785,11 +903,51 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     <div style={styles.root}>
       <div style={styles.grain} />
       
-      {stage === "landing" && <Landing onStart={() => setStage("persona")} onClearData={clearAllData} onLogin={(loginEmail) => {
+      {stage === "landing" && <Landing onStart={() => { setStage("persona"); trackEvent('assessment_started'); }} onClearData={clearAllData} onAuthLogin={(token, user, loginEmail) => {
+        // Auth-based login: save token, restore from server
+        saveAuthToken(token);
+        setAuthUser(user);
+        setEmail(loginEmail);
+        setEmailSubmitted(true);
+        setSessionKey(loginEmail);
+        // Try to restore session from server
+        fetch('/api/sessions/current', { headers: { 'Authorization': `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : { session: null })
+          .then(data => {
+            if (data.session?.scores) {
+              setScores(data.session.scores);
+              if (data.session.persona) setPersonaRaw(PERSONAS.find(p => p.id === data.session.persona) || null);
+              if (data.session.clinicalMode !== undefined) setClinicalMode(data.session.clinicalMode);
+              if (data.session.chatMessages?.length > 0) setChatMessages(data.session.chatMessages);
+              if (data.session.messageCount) setUserMessageCount(data.session.messageCount);
+              setProbingDone(true);
+              setStage("returning");
+            } else {
+              // No server session — check localStorage
+              const key = emailHash(loginEmail.toLowerCase().trim());
+              const existing = loadSession(key);
+              if (existing?.scores) {
+                if (existing.persona) setPersonaRaw(existing.persona);
+                if (existing.scores) setScores(existing.scores);
+                setProbingDone(true);
+                // Migrate localStorage to server
+                fetch('/api/sessions/migrate', {
+                  method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ scores: existing.scores, persona: existing.persona?.id, clinicalMode: existing.clinicalMode, chatMessages: existing.chatMessages, chatSummary: existing.chatSummary, messageCount: existing.userMessageCount || 0 }),
+                }).catch(() => {});
+                setStage("returning");
+              } else {
+                addToast("Welcome! Let's create your profile.", "info");
+                setStage("persona");
+              }
+            }
+          })
+          .catch(() => setStage("persona"));
+        trackEvent('user_logged_in');
+      }} onLogin={(loginEmail) => {
         const key = emailHash(loginEmail.toLowerCase().trim());
         const existing = loadSession(key);
         if (existing && existing.scores) {
-          // Returning user — restore their session
           setSessionKey(loginEmail);
           setEmail(loginEmail);
           setEmailSubmitted(true);
@@ -800,7 +958,6 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           setProbingDone(true);
           setStage("returning");
         } else {
-          // New user — just pre-fill email and start assessment
           setEmail(loginEmail);
           addToast("No existing profile found — let's create one!", "info");
           setStage("persona");
@@ -1141,6 +1298,9 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             startChat(true);
           }}
           onClearData={clearAllData}
+          authToken={authToken}
+          authSubscription={authSubscription}
+          onSubscriptionChange={(sub) => setAuthSubscription(sub)}
         />
       )}
 
@@ -1176,12 +1336,45 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
 
 // ── LANDING ────────────────────────────────────────────────────────────────
 
-function Landing({ onStart, onLogin, onClearData }) {
+function Landing({ onStart, onLogin, onAuthLogin, onClearData }) {
   const [visible, setVisible] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [showLogin, setShowLogin] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => { setTimeout(() => setVisible(true), 100); }, []);
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    if (!loginEmail.trim()) return;
+    // If no password, use legacy email-only flow
+    if (!loginPassword) {
+      onLogin(loginEmail.trim());
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError("");
+    const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login';
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail.trim(), password: loginPassword }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setAuthError(data.error || 'Authentication failed');
+      } else {
+        onAuthLogin(data.token, data.user, loginEmail.trim());
+      }
+    } catch {
+      setAuthError('Connection error. Please try again.');
+    }
+    setAuthLoading(false);
+  };
   return (
     <div style={{ ...styles.page, opacity: visible ? 1 : 0, transition: "opacity 1.2s ease" }}>
       <div style={styles.landingInner}>
@@ -1213,7 +1406,7 @@ function Landing({ onStart, onLogin, onClearData }) {
             Already have a profile? Sign in
           </button>
         ) : (
-          <form onSubmit={e => { e.preventDefault(); if (loginEmail.trim()) onLogin(loginEmail.trim()); }} style={{
+          <form onSubmit={handleAuthSubmit} style={{
             marginTop: "1.5rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", width: "100%", maxWidth: 380,
           }}>
             <input
@@ -1224,8 +1417,23 @@ function Landing({ onStart, onLogin, onClearData }) {
               autoFocus
               style={{ ...styles.emailInput, width: "100%" }}
             />
-            <button type="submit" style={{ ...styles.primaryBtn, width: "100%", marginTop: "0.25rem", padding: "0.7rem 1.5rem", fontSize: "0.9rem" }}>
-              Continue →
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={e => setLoginPassword(e.target.value)}
+              placeholder="Password (optional — for account sync)"
+              style={{ ...styles.emailInput, width: "100%" }}
+            />
+            {authError && <p style={{ color: "#fca5a5", fontSize: "0.8rem", margin: 0 }}>{authError}</p>}
+            <button type="submit" disabled={authLoading} style={{ ...styles.primaryBtn, width: "100%", marginTop: "0.25rem", padding: "0.7rem 1.5rem", fontSize: "0.9rem", opacity: authLoading ? 0.6 : 1 }}>
+              {authLoading ? "..." : isRegistering ? "Create Account →" : "Sign In →"}
+            </button>
+            <button type="button" onClick={() => { setIsRegistering(!isRegistering); setAuthError(""); }} style={{
+              background: "none", border: "none", color: "var(--gold)", opacity: 0.6,
+              fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.8rem",
+              cursor: "pointer", textDecoration: "underline", textUnderlineOffset: "3px",
+            }}>
+              {isRegistering ? "Already have an account? Sign in" : "New here? Create an account"}
             </button>
           </form>
         )}
@@ -1696,7 +1904,7 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0 }) {
 
 // ── COACHING CHAT ──────────────────────────────────────────────────────────
 
-function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout }) {
+function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange }) {
   const topMods = getTopModalities(scores, 3);
   const chatInputRef = useRef(null);
   const isMobile = useIsMobile();
@@ -1768,6 +1976,9 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
           <div key={m.name} style={styles.sidebarMod}>{m.name}</div>
         ))}
       </div>
+      {authSubscription && (
+        <SubscriptionManager authToken={authToken} subscription={authSubscription} onStatusChange={onSubscriptionChange} />
+      )}
       {onClearData && (
         <ClearDataButton onClear={onClearData} />
       )}
@@ -1977,6 +2188,68 @@ function WorkingIndicator({ label = "Working on it…" }) {
       <span style={{ fontSize: "0.8rem", opacity: 0.5, fontStyle: "italic", letterSpacing: "0.03em" }}>
         {label}
       </span>
+    </div>
+  );
+}
+
+function SubscriptionManager({ authToken, subscription, onStatusChange }) {
+  const [cancelling, setCancelling] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  const isLifetime = subscription?.plan_type === 'onetime';
+  const planLabel = isLifetime ? 'Lifetime Access' : '$4.99/mo';
+  const statusLabel = subscription?.status === 'active' ? 'Active' : subscription?.status || 'Unknown';
+
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      const res = await fetch('/api/subscription/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        onStatusChange?.(null);
+        setConfirmCancel(false);
+      }
+    } catch (e) { /* ignore */ }
+    setCancelling(false);
+  };
+
+  return (
+    <div style={{ padding: "0.75rem", borderTop: "1px solid var(--border)" }}>
+      <div style={{ fontSize: "0.7rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "0.4rem" }}>
+        SUBSCRIPTION
+      </div>
+      <div style={{ fontSize: "0.8rem", color: "var(--text-primary)", marginBottom: "0.3rem" }}>
+        {planLabel} — <span style={{ color: statusLabel === 'Active' ? '#86efac' : '#fca5a5' }}>{statusLabel}</span>
+      </div>
+      {!isLifetime && subscription?.status === 'active' && (
+        !confirmCancel ? (
+          <button onClick={() => setConfirmCancel(true)} style={{
+            background: "none", border: "none", color: "rgba(255,255,255,0.2)",
+            fontFamily: "inherit", fontSize: "0.65rem", cursor: "pointer", padding: 0,
+          }}>
+            Cancel subscription
+          </button>
+        ) : (
+          <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.3rem" }}>
+            <button onClick={handleCancel} disabled={cancelling} style={{
+              background: "rgba(200,50,50,0.12)", border: "1px solid rgba(200,50,50,0.35)",
+              color: "#e05050", padding: "0.2rem 0.5rem", borderRadius: 4,
+              fontFamily: "inherit", fontSize: "0.65rem", cursor: "pointer",
+            }}>
+              {cancelling ? '...' : 'Confirm'}
+            </button>
+            <button onClick={() => setConfirmCancel(false)} style={{
+              background: "none", border: "1px solid rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.35)", padding: "0.2rem 0.5rem", borderRadius: 4,
+              fontFamily: "inherit", fontSize: "0.65rem", cursor: "pointer",
+            }}>
+              Keep
+            </button>
+          </div>
+        )
+      )}
     </div>
   );
 }

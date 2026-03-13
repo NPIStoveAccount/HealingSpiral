@@ -1,0 +1,103 @@
+import { Router } from 'express';
+import bcrypt from 'bcrypt';
+import { getDb } from '../db.js';
+import { requireAuth, signToken } from '../middleware/auth.js';
+import logger from '../logger.js';
+
+const router = Router();
+const BCRYPT_ROUNDS = 12;
+
+// POST /api/auth/register
+router.post('/register', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Valid email required' });
+  }
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+  const normalized = email.toLowerCase().trim();
+
+  try {
+    const existing = db.prepare('SELECT id, password_hash FROM users WHERE email = ?').get(normalized);
+
+    if (existing) {
+      // Email-only user upgrading to full account
+      if (!existing.password_hash) {
+        const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, existing.id);
+        const token = signToken({ id: existing.id, email: normalized });
+        return res.json({ token, user: { id: existing.id, email: normalized } });
+      }
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const result = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(normalized, hash);
+    const token = signToken({ id: result.lastInsertRowid, email: normalized });
+    logger.info({ email: normalized }, 'User registered');
+    res.status(201).json({ token, user: { id: result.lastInsertRowid, email: normalized } });
+  } catch (err) {
+    logger.error({ err }, 'Registration error');
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// POST /api/auth/login
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
+  }
+
+  const db = getDb();
+  const normalized = email.toLowerCase().trim();
+
+  try {
+    const user = db.prepare('SELECT id, email, password_hash FROM users WHERE email = ?').get(normalized);
+
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = signToken({ id: user.id, email: user.email });
+    logger.info({ email: user.email }, 'User logged in');
+    res.json({ token, user: { id: user.id, email: user.email } });
+  } catch (err) {
+    logger.error({ err }, 'Login error');
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// GET /api/auth/me
+router.get('/me', requireAuth, (req, res) => {
+  const db = getDb();
+  const user = db.prepare('SELECT id, email, created_at FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const sub = db.prepare(
+    `SELECT plan_type, status, paid_at, expires_at
+     FROM subscriptions WHERE user_id = ? AND status = 'active'
+     ORDER BY paid_at DESC LIMIT 1`
+  ).get(req.user.id);
+
+  const session = db.prepare(
+    'SELECT message_count FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1'
+  ).get(req.user.id);
+
+  res.json({
+    user: { id: user.id, email: user.email, created_at: user.created_at },
+    subscription: sub || null,
+    paymentVerified: !!sub,
+    messageCount: session?.message_count || 0,
+  });
+});
+
+export default router;

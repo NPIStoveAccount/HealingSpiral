@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
+import { optionalAuth } from '../middleware/auth.js';
+import { getDb } from '../db.js';
+import logger from '../logger.js';
 
 const router = Router();
 
-router.post('/', async (req, res) => {
+router.post('/', optionalAuth, async (req, res) => {
   const { email, returnUrl, plan } = req.body;
 
   if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRICE_ID) {
@@ -19,21 +22,35 @@ router.post('/', async (req, res) => {
 
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
+  // If authenticated user has a Stripe customer ID, use it
+  let customer;
+  if (req.user) {
+    const db = getDb();
+    const user = db.prepare('SELECT stripe_customer_id FROM users WHERE id = ?').get(req.user.id);
+    if (user?.stripe_customer_id) {
+      customer = user.stripe_customer_id;
+    }
+  }
+
   try {
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams = {
       mode: isOnetime ? 'payment' : 'subscription',
-      customer_email: email || undefined,
-      line_items: [{
-        price: priceId,
-        quantity: 1,
-      }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${returnUrl || 'http://localhost:5173'}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${returnUrl || 'http://localhost:5173'}?payment=cancelled`,
-    });
+    };
 
+    // Use existing Stripe customer if available, otherwise pass email
+    if (customer) {
+      sessionParams.customer = customer;
+    } else if (email) {
+      sessionParams.customer_email = email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
     res.json({ url: session.url, sessionId: session.id });
   } catch (err) {
-    console.error('[checkout] error:', err.message);
+    logger.error({ err }, 'Checkout error');
     res.status(500).json({ error: err.message });
   }
 });
@@ -52,7 +69,7 @@ router.get('/verify', async (req, res) => {
     const paid = session.payment_status === 'paid' || !!session.subscription;
     res.json({ paid, email: session.customer_email, subscriptionId: session.subscription || null });
   } catch (err) {
-    console.error('[checkout/verify] error:', err.message);
+    logger.error({ err }, 'Checkout verify error');
     res.status(500).json({ error: err.message });
   }
 });

@@ -1,11 +1,42 @@
 import { Router } from 'express';
-const router = Router();
+import { optionalAuth } from '../middleware/auth.js';
+import { getDb } from '../db.js';
+import logger from '../logger.js';
 
-router.post('/', async (req, res) => {
+const router = Router();
+const FREE_MESSAGE_LIMIT = 20;
+
+router.post('/', optionalAuth, async (req, res) => {
   const { messages, systemPrompt, model, max_tokens } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
+  }
+
+  // Server-side message limit enforcement for authenticated users
+  if (req.user) {
+    const db = getDb();
+    const sub = db.prepare(
+      `SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1`
+    ).get(req.user.id);
+
+    if (!sub) {
+      const session = db.prepare(
+        'SELECT id, message_count FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1'
+      ).get(req.user.id);
+
+      const count = session?.message_count || 0;
+      if (count >= FREE_MESSAGE_LIMIT) {
+        return res.status(403).json({ error: 'Message limit reached', limitReached: true });
+      }
+
+      // Increment message count
+      if (session) {
+        db.prepare('UPDATE sessions SET message_count = message_count + 1, updated_at = datetime(\'now\') WHERE id = ?').run(session.id);
+      } else {
+        db.prepare('INSERT INTO sessions (user_id, message_count) VALUES (?, 1)').run(req.user.id);
+      }
+    }
   }
 
   try {
@@ -32,7 +63,7 @@ router.post('/', async (req, res) => {
 
     res.json(data);
   } catch (err) {
-    console.error('[chat] error:', err.message);
+    logger.error({ err }, 'Chat API error');
     res.status(500).json({ error: err.message });
   }
 });

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Resend } from 'resend';
 import { buildEmailHTML } from '../email-template.js';
+import logger from '../logger.js';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.post('/', async (req, res) => {
   }
 
   if (!process.env.RESEND_API_KEY) {
-    console.warn('[report] RESEND_API_KEY not set, skipping email');
+    logger.warn('RESEND_API_KEY not set, skipping email');
     return res.json({ success: true, skipped: true });
   }
 
@@ -37,10 +38,10 @@ router.post('/', async (req, res) => {
       attachments,
     });
 
-    console.log(`[report] email sent to ${email}`);
+    logger.info({ email }, 'Report email sent');
     res.json({ success: true });
   } catch (err) {
-    console.error('[report] email error:', err);
+    logger.error({ err }, 'Report email error');
     res.status(500).json({ error: 'Failed to send email' });
   }
 });
