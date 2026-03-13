@@ -600,12 +600,12 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
     }
   };
 
-  const initiateCheckout = useCallback(async () => {
+  const initiateCheckout = useCallback(async (plan = "subscription") => {
     try {
       const resp = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, returnUrl: window.location.origin }),
+        body: JSON.stringify({ email, returnUrl: window.location.origin, plan }),
       });
       const data = await resp.json();
       if (data.url) {
@@ -1678,12 +1678,12 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0 }) {
         <div style={styles.pricingCard}>
           <div style={styles.pricingBadge}>FREE TO START</div>
           <div style={styles.pricingPrice}>{messagesUsed > 0 ? (20 - messagesUsed) : 20}<span style={styles.pricingPer}> free messages{messagesUsed > 0 ? " remaining" : ""}</span></div>
-          <p style={styles.pricingDesc}>Try the coaching experience free. Unlock unlimited access for $4.99/mo.</p>
+          <p style={styles.pricingDesc}>Try the coaching experience free. Unlock unlimited access when you're ready.</p>
           <ul style={styles.featureList}>
             <li>✦ Full 10-dimension context</li>
             <li>✦ Modality recommendations woven in</li>
             <li>✦ Your chosen coach persona</li>
-            <li>✦ 20 messages free, then $4.99/mo unlimited</li>
+            <li>✦ 20 free messages to start</li>
           </ul>
           <button style={{ ...styles.primaryBtn, width: "100%", marginTop: "1.5rem" }} onClick={onUnlock}>
             Enter the Coaching Session →
@@ -1895,11 +1895,16 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
               You've used your {freeMessageLimit} free messages.
             </p>
             <p style={{ fontSize: "0.85rem", opacity: 0.6, marginBottom: "1rem" }}>
-              Unlock unlimited coaching for $4.99/month.
+              Unlock unlimited coaching to continue.
             </p>
-            <button onClick={onInitiateCheckout} style={{ ...styles.primaryBtn, marginTop: 0, width: "100%" }}>
-              Subscribe for $4.99/mo →
-            </button>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <button onClick={() => onInitiateCheckout("subscription")} style={{ ...styles.primaryBtn, marginTop: 0, flex: 1 }}>
+                $4.99/mo
+              </button>
+              <button onClick={() => onInitiateCheckout("onetime")} style={{ ...styles.primaryBtn, marginTop: 0, flex: 1, background: "transparent", border: "1px solid var(--gold)", color: "var(--gold)" }}>
+                $20 lifetime
+              </button>
+            </div>
           </div>
         ) : (
           <div style={styles.chatInputRow}>
