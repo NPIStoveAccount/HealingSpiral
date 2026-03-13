@@ -19,9 +19,24 @@ router.post('/', async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    console.log(`[webhook] Payment successful for ${session.customer_email}`);
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object;
+      console.log(`[webhook] Subscription started for ${session.customer_email} (sub: ${session.subscription})`);
+      break;
+    }
+    case 'customer.subscription.deleted': {
+      const sub = event.data.object;
+      console.log(`[webhook] Subscription cancelled: ${sub.id} (customer: ${sub.customer})`);
+      break;
+    }
+    case 'invoice.payment_failed': {
+      const invoice = event.data.object;
+      console.log(`[webhook] Payment failed for subscription ${invoice.subscription} (customer: ${invoice.customer})`);
+      break;
+    }
+    default:
+      console.log(`[webhook] Unhandled event: ${event.type}`);
   }
 
   res.json({ received: true });

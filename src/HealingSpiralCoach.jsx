@@ -1442,14 +1442,11 @@ function ProbingChat({ messages, input, loading, streaming, done, bottomRef, onI
           <div ref={bottomRef} />
         </div>
         {done ? (
-          <>
-            <NudgeButton label="View My Full Profile" onClick={onDone} />
-            <div style={styles.chatInputRow}>
-              <button style={{ ...styles.primaryBtn, flex: 1, margin: 0 }} onClick={onDone}>
-                View My Full Profile →
-              </button>
-            </div>
-          </>
+          <div style={styles.chatInputRow}>
+            <button style={{ ...styles.primaryBtn, flex: 1, margin: 0 }} onClick={onDone}>
+              View My Full Profile →
+            </button>
+          </div>
         ) : (
           <>
             {!loading && messages.length > 0 && aiSignaledTransition(messages[messages.length - 1]?.content) && !done && (
@@ -1681,12 +1678,12 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0 }) {
         <div style={styles.pricingCard}>
           <div style={styles.pricingBadge}>FREE TO START</div>
           <div style={styles.pricingPrice}>{messagesUsed > 0 ? (20 - messagesUsed) : 20}<span style={styles.pricingPer}> free messages{messagesUsed > 0 ? " remaining" : ""}</span></div>
-          <p style={styles.pricingDesc}>Try the coaching experience free. Unlock unlimited access anytime.</p>
+          <p style={styles.pricingDesc}>Try the coaching experience free. Unlock unlimited access for $4.99/mo.</p>
           <ul style={styles.featureList}>
             <li>✦ Full 10-dimension context</li>
             <li>✦ Modality recommendations woven in</li>
             <li>✦ Your chosen coach persona</li>
-            <li>✦ 20 messages free, then pay to continue</li>
+            <li>✦ 20 messages free, then $4.99/mo unlimited</li>
           </ul>
           <button style={{ ...styles.primaryBtn, width: "100%", marginTop: "1.5rem" }} onClick={onUnlock}>
             Enter the Coaching Session →
@@ -1728,21 +1725,23 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         <div style={styles.spiralGlyphSmall}>◎</div>
         <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>Healing Spiral</span>
       </div>
-      <div style={{ ...styles.sidebarPersona, borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: "1rem", borderBottom: '1px solid var(--border)' }}>
         <div style={styles.sidebarLabel}>COACH VOICE</div>
-        {PERSONAS.map(p => (
-          <button key={p.id} onClick={() => { onPersonaChange(p); if (isMobile) setSidebarOpen(false); }}
-            style={{
-              display: "flex", alignItems: "center", gap: "0.4rem",
-              width: "100%", background: p.id === persona.id ? "rgba(201,162,39,0.15)" : "transparent",
-              border: p.id === persona.id ? "1px solid var(--gold)" : "1px solid transparent",
-              borderRadius: 4, padding: "0.35rem 0.5rem", cursor: "pointer",
-              color: "var(--text)", fontFamily: "inherit", marginBottom: "0.25rem", transition: "all 0.15s",
-            }}>
-            <span style={{ fontSize: "1rem" }}>{p.emoji}</span>
-            <span style={{ fontSize: "0.72rem", textAlign: "left", lineHeight: 1.3 }}>{p.name}</span>
-          </button>
-        ))}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.3rem" }}>
+          {PERSONAS.map(p => (
+            <button key={p.id} onClick={() => { onPersonaChange(p); if (isMobile) setSidebarOpen(false); }}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem",
+                background: p.id === persona.id ? "rgba(201,162,39,0.15)" : "transparent",
+                border: p.id === persona.id ? "1px solid var(--gold)" : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 4, padding: "0.3rem 0.25rem", cursor: "pointer",
+                color: "var(--text)", fontFamily: "inherit", transition: "all 0.15s",
+              }}>
+              <span style={{ fontSize: "0.85rem" }}>{p.emoji}</span>
+              <span style={{ fontSize: "0.6rem", textAlign: "center", lineHeight: 1.2, opacity: 0.8 }}>{p.name.replace('The ', '')}</span>
+            </button>
+          ))}
+        </div>
       </div>
       <div style={{ ...styles.sidebarSection, borderBottom: '1px solid var(--border)' }}>
         <div style={styles.sidebarLabel}>LANGUAGE</div>
@@ -1857,9 +1856,9 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         {!loading && messages.length > 0 && aiSignaledTransition(messages[messages.length - 1]?.content) && (
           <NudgeButton label="I'm ready" onClick={() => handleSend("I'm ready to continue.")} />
         )}
-        {!isMessageCapReached && !paymentVerified && userMessageCount > (freeMessageLimit - 6) && userMessageCount < freeMessageLimit && (
-          <div style={{ textAlign: "center", padding: "0.25rem", fontSize: "0.7rem", opacity: 0.4, letterSpacing: "0.05em" }}>
-            {freeMessageLimit - userMessageCount} free messages remaining
+        {!isMessageCapReached && !paymentVerified && userMessageCount > 0 && (
+          <div style={{ textAlign: "center", padding: "0.25rem", fontSize: "0.7rem", opacity: userMessageCount > (freeMessageLimit - 6) ? 0.6 : 0.3, letterSpacing: "0.05em", transition: "opacity 0.3s" }}>
+            {freeMessageLimit - userMessageCount} free message{freeMessageLimit - userMessageCount !== 1 ? 's' : ''} remaining
           </div>
         )}
         {(() => {
@@ -1896,10 +1895,10 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
               You've used your {freeMessageLimit} free messages.
             </p>
             <p style={{ fontSize: "0.85rem", opacity: 0.6, marginBottom: "1rem" }}>
-              Unlock unlimited coaching to continue this session.
+              Unlock unlimited coaching for $4.99/month.
             </p>
             <button onClick={onInitiateCheckout} style={{ ...styles.primaryBtn, marginTop: 0, width: "100%" }}>
-              Unlock Unlimited Coaching →
+              Subscribe for $4.99/mo →
             </button>
           </div>
         ) : (
