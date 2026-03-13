@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
-import { getDb } from '../db.js';
+import { dbGet, dbRun } from '../db.js';
 import logger from '../logger.js';
 
 const router = Router();
@@ -21,8 +21,6 @@ router.post('/', async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  const db = getDb();
-
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
@@ -30,20 +28,21 @@ router.post('/', async (req, res) => {
       const customerId = session.customer;
 
       // Find or create user by email
-      let user = email ? db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase()) : null;
+      let user = email ? await dbGet('SELECT id FROM users WHERE email = ?', email.toLowerCase()) : null;
       if (!user && email) {
-        const result = db.prepare('INSERT INTO users (email, stripe_customer_id) VALUES (?, ?)').run(email.toLowerCase(), customerId);
-        user = { id: result.lastInsertRowid };
+        const result = await dbRun('INSERT INTO users (email, stripe_customer_id) VALUES (?, ?)', email.toLowerCase(), customerId);
+        user = { id: Number(result.lastInsertRowid) };
       } else if (user) {
-        db.prepare('UPDATE users SET stripe_customer_id = COALESCE(stripe_customer_id, ?) WHERE id = ?').run(customerId, user.id);
+        await dbRun('UPDATE users SET stripe_customer_id = COALESCE(stripe_customer_id, ?) WHERE id = ?', customerId, user.id);
       }
 
       if (user) {
         const planType = session.subscription ? 'subscription' : 'onetime';
-        db.prepare(
+        await dbRun(
           `INSERT INTO subscriptions (user_id, stripe_subscription_id, stripe_customer_id, plan_type, status)
-           VALUES (?, ?, ?, ?, 'active')`
-        ).run(user.id, session.subscription || null, customerId, planType);
+           VALUES (?, ?, ?, ?, 'active')`,
+          user.id, session.subscription || null, customerId, planType
+        );
       }
 
       logger.info({ email, subscription: session.subscription, customerId }, 'Checkout completed');
@@ -51,17 +50,19 @@ router.post('/', async (req, res) => {
     }
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
-      db.prepare(
-        `UPDATE subscriptions SET status = 'cancelled' WHERE stripe_subscription_id = ?`
-      ).run(sub.id);
+      await dbRun(
+        `UPDATE subscriptions SET status = 'cancelled' WHERE stripe_subscription_id = ?`,
+        sub.id
+      );
       logger.info({ subscriptionId: sub.id, customer: sub.customer }, 'Subscription cancelled');
       break;
     }
     case 'invoice.payment_failed': {
       const invoice = event.data.object;
-      db.prepare(
-        `UPDATE subscriptions SET status = 'payment_failed' WHERE stripe_subscription_id = ?`
-      ).run(invoice.subscription);
+      await dbRun(
+        `UPDATE subscriptions SET status = 'payment_failed' WHERE stripe_subscription_id = ?`,
+        invoice.subscription
+      );
       logger.info({ subscriptionId: invoice.subscription, customer: invoice.customer }, 'Payment failed');
       break;
     }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { optionalAuth } from '../middleware/auth.js';
-import { getDb } from '../db.js';
+import { dbGet, dbRun } from '../db.js';
 import logger from '../logger.js';
 
 const router = Router();
@@ -15,15 +15,16 @@ router.post('/', optionalAuth, async (req, res) => {
 
   // Server-side message limit enforcement for authenticated users
   if (req.user) {
-    const db = getDb();
-    const sub = db.prepare(
-      `SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1`
-    ).get(req.user.id);
+    const sub = await dbGet(
+      `SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1`,
+      req.user.id
+    );
 
     if (!sub) {
-      const session = db.prepare(
-        'SELECT id, message_count FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1'
-      ).get(req.user.id);
+      const session = await dbGet(
+        'SELECT id, message_count FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1',
+        req.user.id
+      );
 
       const count = session?.message_count || 0;
       if (count >= FREE_MESSAGE_LIMIT) {
@@ -32,9 +33,9 @@ router.post('/', optionalAuth, async (req, res) => {
 
       // Increment message count
       if (session) {
-        db.prepare('UPDATE sessions SET message_count = message_count + 1, updated_at = datetime(\'now\') WHERE id = ?').run(session.id);
+        await dbRun("UPDATE sessions SET message_count = message_count + 1, updated_at = datetime('now') WHERE id = ?", session.id);
       } else {
-        db.prepare('INSERT INTO sessions (user_id, message_count) VALUES (?, 1)').run(req.user.id);
+        await dbRun('INSERT INTO sessions (user_id, message_count) VALUES (?, 1)', req.user.id);
       }
     }
   }

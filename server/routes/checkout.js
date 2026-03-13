@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
 import { optionalAuth } from '../middleware/auth.js';
-import { getDb } from '../db.js';
+import { dbGet } from '../db.js';
 import logger from '../logger.js';
 
 const router = Router();
@@ -25,8 +25,7 @@ router.post('/', optionalAuth, async (req, res) => {
   // If authenticated user has a Stripe customer ID, use it
   let customer;
   if (req.user) {
-    const db = getDb();
-    const user = db.prepare('SELECT stripe_customer_id FROM users WHERE id = ?').get(req.user.id);
+    const user = await dbGet('SELECT stripe_customer_id FROM users WHERE id = ?', req.user.id);
     if (user?.stripe_customer_id) {
       customer = user.stripe_customer_id;
     }

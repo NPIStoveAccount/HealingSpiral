@@ -4,7 +4,7 @@ import cors from 'cors';
 import pinoHttp from 'pino-http';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { getDb } from './db.js';
+import { initDb } from './db.js';
 import logger from './logger.js';
 import chatRouter from './routes/chat.js';
 import reportRouter from './routes/report.js';
@@ -47,9 +47,15 @@ if (process.env.NODE_ENV === 'production') {
 
 app.use(errorHandler);
 
-// Initialize database on startup
-getDb();
-
+// Initialize database on startup, then start server
 const PORT = process.env.SERVER_PORT || 3001;
 const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
-app.listen(PORT, HOST, () => logger.info({ host: HOST, port: PORT }, 'Server listening'));
+
+initDb()
+  .then(() => {
+    app.listen(PORT, HOST, () => logger.info({ host: HOST, port: PORT }, 'Server listening'));
+  })
+  .catch(err => {
+    logger.error({ err }, 'Failed to initialize database');
+    process.exit(1);
+  });
