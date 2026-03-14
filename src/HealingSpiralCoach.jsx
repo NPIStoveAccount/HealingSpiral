@@ -940,7 +940,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.startsWith("healing_spiral") || key.startsWith("hs_"))) {
+      if (key && (key.startsWith("healing_spiral") || key.startsWith("hs_")) && key !== "hs_auth_token") {
         keysToRemove.push(key);
       }
     }
