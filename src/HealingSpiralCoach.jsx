@@ -617,7 +617,7 @@ The 10 dimensions are:
 
 Make sure to ask about what modalities or practices the person is actually engaging in — what have they been doing in the last week and month, what are their daily practices (meditation, therapy, bodywork, journaling, movement, breathwork, etc.), and what healing or growth work they're actively involved in. This grounds the assessment in real behavior, not just self-perception.
 
-Ask 4-6 questions total. Each question should naturally reveal information about multiple dimensions. If the user hasn't given you enough information to make a judgement about a particular dimension, inquire about it. After you have enough information (at least 4 user exchanges), end your final message with this exact format on its own line:
+Ask 6-10 questions total. Each question should naturally reveal information about multiple dimensions. If the user hasn't given you enough information to make a judgement about a particular dimension, inquire about it. After you have enough information (at least 6 user exchanges), end your final message with this exact format on its own line:
 [SCORES:{"relational_field":N,"capacity_building":N,"physiological_completion":N,"affect_metabolization":N,"differentiation":N,"implicit_model_updating":N,"identity_reorganization":N,"energetic_reorganization":N,"shadow_integration":N,"nondual_view":N}]
 
 Do NOT show this token to the user or explain it. Just include it naturally at the very end of your final reflective message. Before the scores token, write a warm 2-3 sentence summary of what you've heard and noticed.`;
