@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
+import { MODS, MOD_CATEGORIES } from "./modalities.js";
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
@@ -95,6 +96,15 @@ LANGUAGE MODE — CLINICAL: Use precise psychological and somatic terminology. R
 
 LANGUAGE MODE — PLAIN: Use plain, human, accessible language. Avoid jargon entirely. Translate any clinical concepts into everyday words and felt-sense descriptions. Speak as a wise friend who happens to know this terrain deeply — not as a clinician.`;
   return persona.systemPrompt + modifier;
+}
+
+function buildModalityContext(userModalities, userModalitiesOther) {
+  if ((!userModalities || userModalities.length === 0) && !userModalitiesOther?.trim()) return "";
+  const namedMods = userModalities.map(k => MODS[k]).filter(Boolean);
+  const all = [...namedMods];
+  if (userModalitiesOther?.trim()) all.push(userModalitiesOther.trim());
+  if (all.length === 0) return "";
+  return `\n\nMODALITY FAMILIARITY: The user has experience with these healing modalities/frameworks: ${all.join(", ")}. When relevant, use language, concepts, and terminology from these frameworks. Reference specific techniques or principles from modalities they know. This helps the coaching feel personalized and meets them where they are.`;
 }
 
 const TIER_LABELS = ["", "Exemplary", "Strong", "Moderate", "Developing", "Emerging", "Minimal", "Harmful"];
@@ -328,7 +338,7 @@ function usePersisted(key, defaultVal) {
 }
 
 export default function HealingSpiralApp() {
-  // stages: landing | persona | assessment_choice | questionnaire | confirm_assessment | socratic | probing | results | email_capture | paywall | chat
+  // stages: landing | persona | assessment_choice | modality_profile | questionnaire | confirm_assessment | socratic | probing | results | email_capture | paywall | chat
   const [stage, setStageRaw] = usePersisted("stage", "landing");
   const setStage = (s) => { setStageRaw(s); };
   const [_personaStored, setPersonaRaw] = usePersisted("persona", null);
@@ -359,6 +369,9 @@ export default function HealingSpiralApp() {
   const [socraticMessages, setSocraticMessages] = usePersisted("socraticMessages", []);
   const [socraticInput, setSocraticInput] = useState("");
   const [socraticLoading, setSocraticLoading] = useState(false);
+  const [userModalities, setUserModalities] = usePersisted("userModalities", []);
+  const [userModalitiesOther, setUserModalitiesOther] = usePersisted("userModalitiesOther", "");
+  const [assessmentMethod, setAssessmentMethod] = usePersisted("assessmentMethod", null);
   const chatBottomRef = useRef(null);
   const probingBottomRef = useRef(null);
   const socraticBottomRef = useRef(null);
@@ -541,7 +554,7 @@ export default function HealingSpiralApp() {
 You are conducting a brief intake deepening conversation. The person just completed a 10-dimension Healing Spiral self-assessment. Here are their scores (1=low/struggling, 5=high/thriving):
 ${summaryLines}
 
-Your job: Ask ONE insightful, open-ended question that probes the area where they scored lowest. Make it personal, specific, and inviting. Do not explain the framework. Just ask the question warmly. Keep it to 2-3 sentences max.`;
+Your job: Ask ONE insightful, open-ended question that probes the area where they scored lowest. Make it personal, specific, and inviting. Do not explain the framework. Just ask the question warmly. Keep it to 2-3 sentences max.${buildModalityContext(userModalities, userModalitiesOther)}`;
 
     const msgs = [{ role: "user", content: "I just completed the assessment." }];
     let aiText = "";
@@ -555,7 +568,7 @@ Your job: Ask ONE insightful, open-ended question that probes the area where the
     setStreamingText("");
     setProbingMessages([{ role: "assistant", content: aiText }]);
     setProbingLoading(false);
-  }, [persona, clinicalMode]);
+  }, [persona, clinicalMode, userModalities, userModalitiesOther]);
 
   const sendProbingMessage = async () => {
     if (!probingInput.trim() || probingLoading) return;
@@ -572,7 +585,7 @@ Your job: Ask ONE insightful, open-ended question that probes the area where the
 
 You are doing a brief intake deepening — maximum 2 user exchanges. ${isLastExchange
   ? `This is the FINAL exchange. You MUST end your response with exactly the token [PROFILE_READY] on its own line. Before it, write 1-2 sentences synthesizing what you heard.`
-  : `Ask ONE focused follow-up question. Be brief. Do not wrap up yet.`}`;
+  : `Ask ONE focused follow-up question. Be brief. Do not wrap up yet.`}${buildModalityContext(userModalities, userModalitiesOther)}`;
 
     const apiMsgs = newMsgs.map(m => ({ role: m.role, content: m.content }));
     let aiText = "";
@@ -620,7 +633,7 @@ Make sure to ask about what modalities or practices the person is actually engag
 Ask 6-10 questions total. Each question should naturally reveal information about multiple dimensions. If the user hasn't given you enough information to make a judgement about a particular dimension, inquire about it. After you have enough information (at least 6 user exchanges), end your final message with this exact format on its own line:
 [SCORES:{"relational_field":N,"capacity_building":N,"physiological_completion":N,"affect_metabolization":N,"differentiation":N,"implicit_model_updating":N,"identity_reorganization":N,"energetic_reorganization":N,"shadow_integration":N,"nondual_view":N}]
 
-Do NOT show this token to the user or explain it. Just include it naturally at the very end of your final reflective message. Before the scores token, write a warm 2-3 sentence summary of what you've heard and noticed.`;
+Do NOT show this token to the user or explain it. Just include it naturally at the very end of your final reflective message. Before the scores token, write a warm 2-3 sentence summary of what you've heard and noticed.${buildModalityContext(userModalities, userModalitiesOther)}`;
 
   const startSocratic = useCallback(async () => {
     setStage("socratic");
@@ -639,7 +652,7 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
     setStreamingText("");
     setSocraticMessages([{ role: "assistant", content: aiText }]);
     setSocraticLoading(false);
-  }, [persona, clinicalMode]);
+  }, [persona, clinicalMode, userModalities, userModalitiesOther]);
 
   const sendSocraticMessage = async () => {
     if (!socraticInput.trim() || socraticLoading) return;
@@ -772,7 +785,7 @@ Open the coaching session by briefly acknowledging they're back. Offer a numbere
 3. Dig into something that feels stuck or repeating
 4. Look at what might be being avoided or pushed away
 5. Go deeper on a specific dimension from their profile (pick the one most relevant to what they shared — name it and briefly say why)`}
-Personalize each option using what they shared in the intake. Keep the tone warm but efficient — the user has limited messages, so help them choose a focus quickly rather than diving straight into an exercise.`;
+Personalize each option using what they shared in the intake. Keep the tone warm but efficient — the user has limited messages, so help them choose a focus quickly rather than diving straight into an exercise.${buildModalityContext(userModalities, userModalitiesOther)}`;
 
     let aiText = "";
     try {
@@ -783,7 +796,7 @@ Personalize each option using what they shared in the intake. Keep the tone warm
     setStreamingText("");
     setChatMessages([{ role: "assistant", content: aiText }]);
     setChatLoading(false);
-  }, [persona, scores, probingMessages, clinicalMode, chatMessages.length, previousChatContext]);
+  }, [persona, scores, probingMessages, clinicalMode, chatMessages.length, previousChatContext, userModalities, userModalitiesOther]);
 
   const buildChatSystemPrompt = (topMods, continuationNote) => `${getSystemPrompt(persona, clinicalMode)}
 
@@ -801,7 +814,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
 - The Relational Field is the ground — safe attuned connection that makes all other healing possible
 - Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
 - Three orthogonal dimensions operate independently: Energetic Reorganization, Shadow Integration, Nondual View
-- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.`;
+- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.${buildModalityContext(userModalities, userModalitiesOther)}`;
 
   const sendChatDirect = async (text) => {
     if (chatLoading || isMessageCapReached) return;
@@ -897,6 +910,9 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     setUserMessageCount(0);
     setPaymentVerified(false);
     setSocraticMessages([]);
+    setUserModalities([]);
+    setUserModalitiesOther("");
+    setAssessmentMethod(null);
   }, []);
 
   // ── RENDER ──────────────────────────────────────────────────────────────
@@ -1011,7 +1027,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             <p style={styles.sectionSub}>Choose the approach that feels right for you.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem", maxWidth: 520, width: "100%" }}>
               <button
-                onClick={() => setStage("questionnaire")}
+                onClick={() => { setAssessmentMethod("questionnaire"); setStage("modality_profile"); }}
                 style={{
                   ...styles.personaCard,
                   textAlign: "center", fontFamily: "inherit", color: "var(--text)", cursor: "pointer",
@@ -1022,7 +1038,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
                 <div style={{ fontSize: "0.85rem", opacity: 0.6, fontStyle: "italic" }}>Rate yourself across 10 dimensions (quick, 3-5 minutes)</div>
               </button>
               <button
-                onClick={() => startSocratic()}
+                onClick={() => { setAssessmentMethod("socratic"); setStage("modality_profile"); }}
                 style={{
                   ...styles.personaCard,
                   textAlign: "center", fontFamily: "inherit", color: "var(--text)", cursor: "pointer",
@@ -1035,6 +1051,25 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             </div>
           </div>
         </div>
+      )}
+
+      {stage === "modality_profile" && (
+        <ModalityProfile
+          selected={userModalities}
+          otherText={userModalitiesOther}
+          onToggle={(key) => setUserModalities(prev =>
+            prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+          )}
+          onOtherChange={setUserModalitiesOther}
+          onContinue={() => {
+            if (assessmentMethod === "socratic") {
+              startSocratic();
+            } else {
+              setStage("questionnaire");
+            }
+          }}
+          onBack={() => setStage("assessment_choice")}
+        />
       )}
 
       {stage === "questionnaire" && (
@@ -1550,6 +1585,114 @@ function PersonaSelect({ onSelect }) {
               <div style={styles.personaDesc}>{p.desc}</div>
             </button>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MODALITY PROFILE ──────────────────────────────────────────────────────
+
+function ModalityProfile({ selected, otherText, onToggle, onOtherChange, onContinue, onBack }) {
+  const [expandedCategory, setExpandedCategory] = useState(null);
+  return (
+    <div style={styles.page}>
+      <div style={{ ...styles.sectionInner, maxWidth: 760 }}>
+        <div style={styles.spiralGlyph}>◎</div>
+        <h2 style={styles.sectionTitle}>Your Healing Background</h2>
+        <p style={styles.sectionSub}>
+          Select any modalities or frameworks you have experience with.
+          This helps your coach speak your language.
+        </p>
+        <p style={{ fontSize: "0.82rem", opacity: 0.4, marginBottom: "1.5rem", fontStyle: "italic" }}>
+          Optional — skip if you prefer
+        </p>
+
+        <div style={{ textAlign: "left", width: "100%" }}>
+          {Object.entries(MOD_CATEGORIES).map(([category, keys]) => {
+            const selectedInCategory = keys.filter(k => selected.includes(k)).length;
+            const isExpanded = expandedCategory === category;
+            return (
+              <div key={category} style={{ marginBottom: "0.5rem" }}>
+                <button
+                  onClick={() => setExpandedCategory(prev => prev === category ? null : category)}
+                  style={{
+                    background: selectedInCategory > 0 ? "rgba(201,162,39,0.06)" : "none",
+                    border: "none", color: "var(--gold)",
+                    fontSize: "0.9rem", fontFamily: "inherit", cursor: "pointer",
+                    padding: "0.6rem 0.8rem", fontWeight: 600, letterSpacing: "0.03em",
+                    width: "100%", textAlign: "left", borderRadius: 6,
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <span>{category}</span>
+                  <span style={{ fontSize: "0.75rem", opacity: 0.5 }}>
+                    {selectedInCategory > 0 ? `(${selectedInCategory})` : ""}
+                    {" "}{isExpanded ? "▾" : "▸"}
+                  </span>
+                </button>
+                {isExpanded && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem", padding: "0.5rem 0.8rem 0.8rem" }}>
+                    {keys.map(key => {
+                      const isSelected = selected.includes(key);
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => onToggle(key)}
+                          style={{
+                            padding: "0.3rem 0.75rem",
+                            borderRadius: 20,
+                            border: isSelected ? "1px solid var(--gold)" : "1px solid var(--border)",
+                            background: isSelected ? "rgba(201,162,39,0.15)" : "rgba(255,255,255,0.04)",
+                            color: isSelected ? "var(--gold)" : "var(--text)",
+                            fontSize: "0.82rem",
+                            fontFamily: "inherit",
+                            cursor: "pointer",
+                            transition: "all 0.15s",
+                            opacity: isSelected ? 1 : 0.7,
+                          }}
+                        >
+                          {MODS[key]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: "1.5rem", textAlign: "left", width: "100%" }}>
+          <label style={{ fontSize: "0.85rem", opacity: 0.6, display: "block", marginBottom: "0.4rem" }}>
+            Other modalities not listed:
+          </label>
+          <input
+            type="text"
+            value={otherText}
+            onChange={e => onOtherChange(e.target.value)}
+            placeholder="e.g., Focusing, Process Work, NARM..."
+            style={{
+              width: "100%", padding: "0.7rem 1rem",
+              background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+              borderRadius: 4, color: "var(--text)", fontSize: "0.95rem",
+              fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        {selected.length > 0 && (
+          <div style={{ marginTop: "1rem", fontSize: "0.82rem", opacity: 0.5 }}>
+            {selected.length} modalit{selected.length !== 1 ? "ies" : "y"} selected
+          </div>
+        )}
+
+        <div style={{ ...styles.navRow, marginTop: "2rem" }}>
+          <button style={styles.secondaryBtn} onClick={onBack}>← Back</button>
+          <button style={styles.primaryBtn} onClick={onContinue}>
+            {selected.length > 0 || otherText.trim() ? "Continue →" : "Skip →"}
+          </button>
         </div>
       </div>
     </div>

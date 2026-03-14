@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { MODS, MOD_KEYS } from "./modalities.js";
 
 /* ── colour tokens ── */
 const C = {
@@ -16,34 +17,7 @@ const C = {
   strong:"#4aaa5a",moderate:"#aaa04a",weak:"#aa5a4a",none:"#5a4a4a",
 };
 
-/* ── Modalities master list (id → display name) ── */
-const MODS = {
-  step12:"12-Step Programs",ifs:"IFS",gestalt:"Gestalt",se:"Somatic Experiencing",
-  sm:"Sensorimotor Psychotherapy",biocore:"Bioenergetics / Core Energetics",
-  rc:"RC (Re-evaluation Counseling)",tre:"TRE",men:"Men/Women Group Therapy",
-  talk:"Talk Therapy",cbt:"CBT",dbt:"DBT",act:"ACT",
-  jung:"Jungian Analysis",psychodyn:"Psychoanalysis / Psychodynamic",
-  istdp:"ISTDP",emdr:"EMDR / Brainspotting",hakomi:"Hakomi",
-  emres:"EmRes",nlp:"NLP",hypno:"Hypnotherapy",
-  art:"Art Therapy",music:"Music / Voice Work",drama:"Drama Therapy",
-  nfb:"Neurofeedback",circ:"Circling / Relatefulness",
-  nvc:"NVC",eft:"EFT (Couples)",grpther:"Group Therapy (Process)",
-  fam:"Family Constellations",cuddle:"Cuddle Therapy",forum:"Forum / LGAT",
-  exkink:"Existential Kink",maha:"Mahamudra",vip:"Vipassana",zen:"Zen",
-  dzog:"Dzogchen",adv:"Advaita Vedanta",real:"Realization Process",
-  cenpr:"Centering Prayer",sufi:"Sufism / Whirling",kirtan:"Kirtan / Chanting",
-  yoga:"Yoga / Yoga Nidra",kundy:"Kundalini Yoga",hrid:"Hridaya Yoga",
-  taichi:"Tai Chi / Qigong",martial:"Martial Arts (Internal)",
-  ci:"Contact Improvisation",rhythms:"5Rhythms / Ecstatic Dance",
-  feld:"Feldenkrais / Alexander",rolf:"Rolfing / Structural Integration",
-  cranio:"Craniosacral Therapy",massage:"Massage / Bodywork",
-  acu:"Acupuncture / TCM",plant:"Plant Medicine",holo:"Holotropic Breathwork",
-  wimhof:"Wim Hof Method",nature:"Deep Nature Connection",
-  vision:"Vision Quest",sweat:"Sweat Lodge",hoop:"Ho'oponopono",
-  float:"Float Tanks",vns:"Vagus Nerve Stimulation",ket:"Ketamine Therapy",
-};
-
-const MOD_KEYS = Object.keys(MODS).sort((a,b) => MODS[a].localeCompare(MODS[b]));
+/* MODS and MOD_KEYS imported from ./modalities.js */
 
 /* ── Dimensions data using mod IDs ── */
 const mkE = (id, role) => ({id, name:MODS[id], role});
