@@ -1096,6 +1096,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           bottomRef={socraticBottomRef}
           onInput={setSocraticInput}
           onSend={sendSocraticMessage}
+          onBack={() => { setSocraticMessages([]); setStreamingText(""); setStage("assessment_choice"); }}
           currentPersona={persona}
           onPersonaChange={setPersona}
           clinicalMode={clinicalMode}
@@ -1695,13 +1696,25 @@ function ProbingChat({ messages, input, loading, streaming, done, bottomRef, onI
 
 // ── SOCRATIC ASSESSMENT ────────────────────────────────────────────────────
 
-function SocraticAssessment({ messages, input, loading, streaming, bottomRef, onInput, onSend, currentPersona, onPersonaChange, clinicalMode, onToggleClinical }) {
+function SocraticAssessment({ messages, input, loading, streaming, bottomRef, onInput, onSend, onBack, currentPersona, onPersonaChange, clinicalMode, onToggleClinical }) {
   const inputRef = useRef(null);
   const handleSend = () => { onSend(); setTimeout(() => inputRef.current?.focus(), 50); };
   return (
     <div style={styles.page}>
       <div style={styles.chatOuter}>
         <div style={styles.chatHeader}>
+          <button
+            onClick={onBack}
+            title="Back to assessment choice"
+            style={{
+              background: "transparent", border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 4, width: 32, height: 32, cursor: "pointer",
+              fontSize: "1rem", display: "flex", alignItems: "center", justifyContent: "center",
+              color: "var(--gold)", transition: "all 0.15s", marginRight: "0.3rem",
+            }}
+          >
+            ←
+          </button>
           <div style={styles.spiralGlyphSmall}>◎</div>
           <span style={styles.chatHeaderTitle}>Guided Assessment</span>
           <div style={{ marginLeft: "auto", display: "flex", gap: "0.4rem", alignItems: "center" }}>
