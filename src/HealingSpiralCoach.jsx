@@ -599,7 +599,7 @@ You are doing a brief intake deepening — maximum 2 user exchanges. ${isLastExc
 
   const socraticSystemPrompt = `${getSystemPrompt(persona, clinicalMode)}
 
-You are conducting an indirect assessment of someone's position across 10 dimensions of the Healing Spiral framework. Do NOT ask them to rate themselves. Instead, ask open-ended questions about their life, relationships, inner experience, and growth edge.
+You are conducting an indirect assessment of someone's position across 10 dimensions of the Healing Spiral framework. Do NOT ask them to rate themselves. Instead, ask them questions that help understand where they stand on the different dimensions of contact.
 
 From their answers, you will privately assess where they fall on each dimension (1=Exemplary, 2=Strong, 3=Moderate, 4=Developing, 5=Emerging, 6=Minimal, 7=Harmful).
 
@@ -615,7 +615,7 @@ The 10 dimensions are:
 9. Shadow Integration (shadow_integration) — Reclaiming disowned aspects
 10. Nondual View (nondual_view) — Recognizing awareness itself as ground
 
-Ask 4-6 questions total. Each question should naturally reveal information about multiple dimensions. After you have enough information (at least 4 user exchanges), end your final message with this exact format on its own line:
+Ask 4-6 questions total. Each question should naturally reveal information about multiple dimensions. If the user hasn't given you enough information to make a judgement about a particular dimension, inquire about it. After you have enough information (at least 4 user exchanges), end your final message with this exact format on its own line:
 [SCORES:{"relational_field":N,"capacity_building":N,"physiological_completion":N,"affect_metabolization":N,"differentiation":N,"implicit_model_updating":N,"identity_reorganization":N,"energetic_reorganization":N,"shadow_integration":N,"nondual_view":N}]
 
 Do NOT show this token to the user or explain it. Just include it naturally at the very end of your final reflective message. Before the scores token, write a warm 2-3 sentence summary of what you've heard and noticed.`;
@@ -625,14 +625,14 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
     setSocraticLoading(true);
     setSocraticMessages([]);
 
-    const msgs = [{ role: "user", content: "I'd like you to get to know me through conversation, rather than a questionnaire." }];
+    const msgs = [{ role: "user", content: "I'd like you to assess where I stand across the different dimensions through conversation, rather than a questionnaire." }];
     let aiText = "";
     try {
       aiText = await callClaude(msgs, socraticSystemPrompt, (partial) => {
         setStreamingText(partial);
       });
     } catch (e) {
-      aiText = "I'd love to get to know you. Tell me — what brings you to this work right now? What's alive or asking for attention in your life?";
+      aiText = "I'd love to get a sense of where you are across these different dimensions. Let me start with a few questions — how would you describe the quality of your closest relationships right now? Do you feel safe and seen in them?";
     }
     setStreamingText("");
     setSocraticMessages([{ role: "assistant", content: aiText }]);
@@ -652,7 +652,7 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
     try {
       aiText = await callClaude(apiMsgs, socraticSystemPrompt, (partial) => setStreamingText(partial));
     } catch (e) {
-      aiText = "Thank you for sharing that. Tell me more about what feels most present for you right now.";
+      aiText = "Thank you for sharing that. Let me ask about another area — when strong emotions come up, what tends to happen? Do they move through you, or do they tend to get stuck?";
     }
 
     // Check for [SCORES:{...}] pattern
