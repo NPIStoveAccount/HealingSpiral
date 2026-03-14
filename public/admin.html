@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin - Healing Spiral</title>
+<style>
+  :root { --bg: #1a1814; --surface: #242018; --border: #3a3428; --text: #e8e0d4; --gold: #c9a227; --red: #e74c3c; --green: #27ae60; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-family: 'Georgia', serif; font-size: 1.4rem; color: var(--gold); font-weight: 400; }
+  .header-actions { display: flex; gap: 0.75rem; align-items: center; }
+  .header .user-info { font-size: 0.82rem; opacity: 0.5; }
+
+  .container { padding: 1.5rem 2rem; max-width: 1400px; }
+  .stats { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; min-width: 140px; }
+  .stat-val { font-size: 1.8rem; font-weight: 600; color: var(--gold); }
+  .stat-label { font-size: 0.75rem; opacity: 0.5; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.2rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  thead th { text-align: left; padding: 0.6rem 0.8rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); }
+  tbody td { padding: 0.5rem 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+  tbody tr:hover { background: rgba(201,162,39,0.04); }
+
+  .editable { cursor: pointer; padding: 0.25rem 0.4rem; border-radius: 4px; transition: background 0.15s; min-width: 60px; display: inline-block; }
+  .editable:hover { background: rgba(255,255,255,0.08); }
+  .editable input, .editable select { background: rgba(255,255,255,0.1); border: 1px solid var(--gold); color: var(--text); padding: 0.25rem 0.4rem; border-radius: 4px; font-size: 0.85rem; font-family: inherit; outline: none; width: 100%; }
+
+  .btn { padding: 0.35rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.78rem; font-family: inherit; transition: all 0.15s; }
+  .btn-save { background: var(--gold); color: #1a1814; font-weight: 600; }
+  .btn-save:hover { background: #d4ad2e; }
+  .btn-save:disabled { opacity: 0.4; cursor: default; }
+  .btn-delete { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  .btn-delete:hover { background: rgba(231,76,60,0.1); }
+  .btn-login { background: var(--gold); color: #1a1814; font-weight: 600; padding: 0.6rem 1.5rem; font-size: 0.95rem; border-radius: 6px; border: none; cursor: pointer; }
+  .btn-refresh { background: transparent; color: var(--gold); border: 1px solid var(--border); }
+  .btn-refresh:hover { border-color: var(--gold); }
+
+  .actions { display: flex; gap: 0.4rem; }
+
+  .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2.5rem; width: 360px; text-align: center; }
+  .login-box h2 { font-family: 'Georgia', serif; color: var(--gold); font-weight: 400; margin-bottom: 0.5rem; }
+  .login-box p { font-size: 0.85rem; opacity: 0.5; margin-bottom: 1.5rem; }
+  .login-box input { width: 100%; padding: 0.6rem 0.8rem; background: rgba(255,255,255,0.06); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; margin-bottom: 0.75rem; outline: none; font-family: inherit; }
+  .login-box input:focus { border-color: var(--gold); }
+  .login-error { color: var(--red); font-size: 0.82rem; margin-bottom: 0.75rem; }
+
+  .toast { position: fixed; top: 1rem; right: 1rem; padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.85rem; z-index: 100; animation: fadeIn 0.3s; max-width: 380px; }
+  .toast-success { background: rgba(22,101,52,0.95); color: #86efac; border: 1px solid rgba(134,239,172,0.3); }
+  .toast-error { background: rgba(127,29,29,0.95); color: #fca5a5; border: 1px solid rgba(252,165,165,0.3); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .badge { padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
+  .badge-admin { background: rgba(201,162,39,0.2); color: var(--gold); }
+  .badge-active { background: rgba(39,174,96,0.2); color: #27ae60; }
+  .badge-cancelled { background: rgba(231,76,60,0.2); color: #e74c3c; }
+  .badge-none { opacity: 0.3; }
+
+  .empty { text-align: center; padding: 3rem; opacity: 0.4; }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+const API = window.location.origin;
+let token = localStorage.getItem('hs_auth_token');
+let users = [];
+let editing = {}; // { rowId: { field: value, ... } }
+
+function showToast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(API + url, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...(opts.headers || {}) },
+  });
+  if (res.status === 401 || res.status === 403) {
+    token = null;
+    localStorage.removeItem('hs_auth_token');
+    render();
+    throw new Error('Not authorized');
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function login(email, password) {
+  const res = await fetch(API + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Login failed');
+  token = data.token;
+  localStorage.setItem('hs_auth_token', token);
+  await loadUsers();
+}
+
+async function loadUsers() {
+  try {
+    const data = await apiFetch('/api/admin/users');
+    users = data.users;
+    editing = {};
+    render();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function startEdit(userId, field, currentVal) {
+  if (!editing[userId]) editing[userId] = {};
+  editing[userId][field] = currentVal ?? '';
+  render();
+}
+
+function updateEdit(userId, field, val) {
+  if (!editing[userId]) editing[userId] = {};
+  editing[userId][field] = val;
+}
+
+function cancelEdit(userId) {
+  delete editing[userId];
+  render();
+}
+
+async function saveUser(userId) {
+  const changes = editing[userId];
+  if (!changes) return;
+  try {
+    await apiFetch(`/api/admin/users/${userId}`, { method: 'PUT', body: JSON.stringify(changes) });
+    showToast('User updated');
+    await loadUsers();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function deleteUser(userId, email) {
+  if (!confirm(`Delete user "${email}" and all their data? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+    showToast(`Deleted ${email}`);
+    await loadUsers();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function fmtDate(d) {
+  if (!d) return '-';
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function editableCell(userId, field, currentVal, type = 'text') {
+  const ed = editing[userId];
+  if (ed && field in ed) {
+    if (type === 'role-select') {
+      return `<span class="editable"><select onchange="updateEdit(${userId},'${field}',this.value)">
+        <option value="user" ${ed[field]==='user'?'selected':''}>user</option>
+        <option value="admin" ${ed[field]==='admin'?'selected':''}>admin</option>
+      </select></span>`;
+    }
+    if (type === 'status-select') {
+      return `<span class="editable"><select onchange="updateEdit(${userId},'${field}',this.value)">
+        <option value="active" ${ed[field]==='active'?'selected':''}>active</option>
+        <option value="cancelled" ${ed[field]==='cancelled'?'selected':''}>cancelled</option>
+        <option value="expired" ${ed[field]==='expired'?'selected':''}>expired</option>
+        <option value="payment_failed" ${ed[field]==='payment_failed'?'selected':''}>payment_failed</option>
+      </select></span>`;
+    }
+    if (type === 'plan-select') {
+      return `<span class="editable"><select onchange="updateEdit(${userId},'${field}',this.value)">
+        <option value="" ${!ed[field]?'selected':''}>-</option>
+        <option value="subscription" ${ed[field]==='subscription'?'selected':''}>subscription</option>
+        <option value="onetime" ${ed[field]==='onetime'?'selected':''}>onetime</option>
+      </select></span>`;
+    }
+    return `<span class="editable"><input type="text" value="${ed[field]||''}" onchange="updateEdit(${userId},'${field}',this.value)" /></span>`;
+  }
+  const display = currentVal || '-';
+  return `<span class="editable" onclick="startEdit(${userId},'${field}',${JSON.stringify(currentVal)})">${display}</span>`;
+}
+
+function roleBadge(role) {
+  if (role === 'admin') return `<span class="badge badge-admin">admin</span>`;
+  return role || 'user';
+}
+
+function statusBadge(status) {
+  if (!status) return `<span class="badge badge-none">none</span>`;
+  const cls = status === 'active' ? 'badge-active' : 'badge-cancelled';
+  return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function render() {
+  const app = document.getElementById('app');
+
+  if (!token) {
+    app.innerHTML = `
+      <div class="login-page">
+        <div class="login-box">
+          <h2>Admin Dashboard</h2>
+          <p>Sign in with an admin account</p>
+          <div id="login-error" class="login-error" style="display:none"></div>
+          <form id="login-form">
+            <input type="email" id="login-email" placeholder="Email" required />
+            <input type="password" id="login-pass" placeholder="Password" required />
+            <button type="submit" class="btn-login" style="width:100%;margin-top:0.5rem">Sign In</button>
+          </form>
+        </div>
+      </div>`;
+    document.getElementById('login-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('login-error');
+      errEl.style.display = 'none';
+      try {
+        await login(document.getElementById('login-email').value, document.getElementById('login-pass').value);
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    };
+    return;
+  }
+
+  const totalUsers = users.length;
+  const paidUsers = users.filter(u => u.subscription_status === 'active').length;
+  const admins = users.filter(u => u.role === 'admin').length;
+
+  app.innerHTML = `
+    <div class="header">
+      <h1>Healing Spiral Admin</h1>
+      <div class="header-actions">
+        <button class="btn btn-refresh" onclick="loadUsers()">Refresh</button>
+      </div>
+    </div>
+    <div class="container">
+      <div class="stats">
+        <div class="stat"><div class="stat-val">${totalUsers}</div><div class="stat-label">Total Users</div></div>
+        <div class="stat"><div class="stat-val">${paidUsers}</div><div class="stat-label">Active Subscribers</div></div>
+        <div class="stat"><div class="stat-val">${admins}</div><div class="stat-label">Admins</div></div>
+      </div>
+      ${users.length === 0 ? '<div class="empty">No users found</div>' : `
+      <table>
+        <thead><tr>
+          <th>Email</th><th>Role</th><th>Plan</th><th>Status</th>
+          <th>Paid</th><th>Expires</th><th>Messages</th><th>Created</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${users.map(u => {
+            const isEditing = !!editing[u.id];
+            return `<tr>
+              <td>${editableCell(u.id, 'email', u.email)}</td>
+              <td>${isEditing && 'role' in editing[u.id] ? editableCell(u.id, 'role', u.role, 'role-select') :
+                `<span class="editable" onclick="startEdit(${u.id},'role','${u.role||'user'}')">${roleBadge(u.role)}</span>`}</td>
+              <td>${editableCell(u.id, 'plan_type', u.plan_type, 'plan-select')}</td>
+              <td>${isEditing && 'subscription_status' in editing[u.id] ? editableCell(u.id, 'subscription_status', u.subscription_status, 'status-select') :
+                `<span class="editable" onclick="startEdit(${u.id},'subscription_status','${u.subscription_status||'active'}')">${statusBadge(u.subscription_status)}</span>`}</td>
+              <td>${fmtDate(u.paid_at)}</td>
+              <td>${editableCell(u.id, 'expires_at', u.expires_at)}</td>
+              <td>${u.message_count ?? 0}</td>
+              <td>${fmtDate(u.created_at)}</td>
+              <td><div class="actions">
+                ${isEditing ? `
+                  <button class="btn btn-save" onclick="saveUser(${u.id})">Save</button>
+                  <button class="btn btn-refresh" onclick="cancelEdit(${u.id})">Cancel</button>
+                ` : ''}
+                <button class="btn btn-delete" onclick="deleteUser(${u.id},'${u.email}')">Delete</button>
+              </div></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+
+// Boot
+if (token) { loadUsers(); } else { render(); }
+</script>
+</body>
+</html>

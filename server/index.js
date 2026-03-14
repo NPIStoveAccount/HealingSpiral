@@ -14,6 +14,7 @@ import authRouter from './routes/auth.js';
 import subscriptionRouter from './routes/subscription.js';
 import sessionsRouter from './routes/sessions.js';
 import analyticsRouter from './routes/analytics.js';
+import adminRouter from './routes/admin.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,12 @@ app.use('/api/checkout', checkoutRouter);
 app.use('/api/subscription', subscriptionRouter);
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/admin', adminRouter);
+
+// Admin dashboard page
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'admin.html'));
+});
 
 // Health check for deployment platforms
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

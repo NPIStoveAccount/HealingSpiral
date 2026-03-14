@@ -29,6 +29,22 @@ export function optionalAuth(req, res, next) {
   next();
 }
 
+export function requireAdmin(req, res, next) {
+  requireAuth(req, res, async () => {
+    try {
+      const { dbGet } = await import('../db.js');
+      const user = await dbGet('SELECT role FROM users WHERE id = ?', req.user.id);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+      next();
+    } catch (err) {
+      logger.error({ err }, 'Admin check failed');
+      return res.status(500).json({ error: 'Server error' });
+    }
+  });
+}
+
 export function signToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
 }

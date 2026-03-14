@@ -13,6 +13,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY server ./server
+COPY public ./public
 ENV NODE_ENV=production
 ENV SERVER_PORT=8080
 EXPOSE 8080
