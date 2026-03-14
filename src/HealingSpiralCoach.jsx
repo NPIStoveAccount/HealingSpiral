@@ -615,6 +615,8 @@ The 10 dimensions are:
 9. Shadow Integration (shadow_integration) — Reclaiming disowned aspects
 10. Nondual View (nondual_view) — Recognizing awareness itself as ground
 
+Make sure to ask about what modalities or practices the person is actually engaging in — what have they been doing in the last week and month, what are their daily practices (meditation, therapy, bodywork, journaling, movement, breathwork, etc.), and what healing or growth work they're actively involved in. This grounds the assessment in real behavior, not just self-perception.
+
 Ask 4-6 questions total. Each question should naturally reveal information about multiple dimensions. If the user hasn't given you enough information to make a judgement about a particular dimension, inquire about it. After you have enough information (at least 4 user exchanges), end your final message with this exact format on its own line:
 [SCORES:{"relational_field":N,"capacity_building":N,"physiological_completion":N,"affect_metabolization":N,"differentiation":N,"implicit_model_updating":N,"identity_reorganization":N,"energetic_reorganization":N,"shadow_integration":N,"nondual_view":N}]
 
