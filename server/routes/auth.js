@@ -75,8 +75,10 @@ router.post('/login', async (req, res) => {
 
 // GET /api/auth/me
 router.get('/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, created_at FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, role, created_at FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const isAdmin = user.role === 'admin';
 
   const sub = await dbGet(
     `SELECT plan_type, status, paid_at, expires_at
@@ -91,9 +93,9 @@ router.get('/me', requireAuth, async (req, res) => {
   );
 
   res.json({
-    user: { id: user.id, email: user.email, created_at: user.created_at },
-    subscription: sub || null,
-    paymentVerified: !!sub,
+    user: { id: user.id, email: user.email, role: user.role, created_at: user.created_at },
+    subscription: isAdmin ? { plan_type: 'admin', status: 'active' } : (sub || null),
+    paymentVerified: isAdmin || !!sub,
     messageCount: session?.message_count || 0,
   });
 });

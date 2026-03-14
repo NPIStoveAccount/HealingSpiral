@@ -15,27 +15,33 @@ router.post('/', optionalAuth, async (req, res) => {
 
   // Server-side message limit enforcement for authenticated users
   if (req.user) {
-    const sub = await dbGet(
-      `SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1`,
-      req.user.id
-    );
+    // Admins get unlimited usage — skip all limits
+    const userRow = await dbGet('SELECT role FROM users WHERE id = ?', req.user.id);
+    const isAdmin = userRow?.role === 'admin';
 
-    if (!sub) {
-      const session = await dbGet(
-        'SELECT id, message_count FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1',
+    if (!isAdmin) {
+      const sub = await dbGet(
+        `SELECT id FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1`,
         req.user.id
       );
 
-      const count = session?.message_count || 0;
-      if (count >= FREE_MESSAGE_LIMIT) {
-        return res.status(403).json({ error: 'Message limit reached', limitReached: true });
-      }
+      if (!sub) {
+        const session = await dbGet(
+          'SELECT id, message_count FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1',
+          req.user.id
+        );
 
-      // Increment message count
-      if (session) {
-        await dbRun("UPDATE sessions SET message_count = message_count + 1, updated_at = datetime('now') WHERE id = ?", session.id);
-      } else {
-        await dbRun('INSERT INTO sessions (user_id, message_count) VALUES (?, 1)', req.user.id);
+        const count = session?.message_count || 0;
+        if (count >= FREE_MESSAGE_LIMIT) {
+          return res.status(403).json({ error: 'Message limit reached', limitReached: true });
+        }
+
+        // Increment message count
+        if (session) {
+          await dbRun("UPDATE sessions SET message_count = message_count + 1, updated_at = datetime('now') WHERE id = ?", session.id);
+        } else {
+          await dbRun('INSERT INTO sessions (user_id, message_count) VALUES (?, 1)', req.user.id);
+        }
       }
     }
   }
