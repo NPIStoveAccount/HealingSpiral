@@ -165,6 +165,21 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function fmtTokens(inp, out) {
+  const total = (inp || 0) + (out || 0);
+  if (total === 0) return '-';
+  if (total >= 1000000) return (total / 1000000).toFixed(1) + 'M';
+  if (total >= 1000) return (total / 1000).toFixed(1) + 'k';
+  return total.toString();
+}
+
+function fmtCost(inp, out) {
+  // Haiku 4.5 pricing: $0.80/MTok input, $4/MTok output
+  const cost = ((inp || 0) * 0.80 + (out || 0) * 4.0) / 1000000;
+  if (cost === 0) return '-';
+  return '$' + cost.toFixed(4);
+}
+
 function editableCell(userId, field, currentVal, type = 'text') {
   const ed = editing[userId];
   if (ed && field in ed) {
@@ -189,10 +204,18 @@ function editableCell(userId, field, currentVal, type = 'text') {
         <option value="onetime" ${ed[field]==='onetime'?'selected':''}>onetime</option>
       </select></span>`;
     }
+    if (type === 'date') {
+      const curVal = ed[field] || '';
+      const isNever = curVal === 'never';
+      return `<span class="editable" style="display:flex;gap:0.3rem;align-items:center">
+        <input type="date" value="${isNever ? '' : curVal.slice(0,10)}" ${isNever?'disabled':''} onchange="updateEdit(${userId},'${field}',this.value)" style="${isNever?'opacity:0.3':''}" />
+        <label style="font-size:0.75rem;white-space:nowrap;cursor:pointer"><input type="checkbox" ${isNever?'checked':''} onchange="updateEdit(${userId},'${field}',this.checked?'never':'');render()"> never</label>
+      </span>`;
+    }
     return `<span class="editable"><input type="text" value="${ed[field]||''}" onchange="updateEdit(${userId},'${field}',this.value)" /></span>`;
   }
-  const display = currentVal || '-';
-  return `<span class="editable" onclick="startEdit(${userId},'${field}',${JSON.stringify(currentVal)})">${display}</span>`;
+  const display = type === 'date' ? (currentVal === 'never' ? 'Never' : fmtDate(currentVal)) : (currentVal || '-');
+  return `<span class="editable" onclick="startEdit(${userId},'${field}',${JSON.stringify(currentVal||'')})">${display}</span>`;
 }
 
 function roleBadge(role) {
@@ -240,6 +263,9 @@ function render() {
   const totalUsers = users.length;
   const paidUsers = users.filter(u => u.subscription_status === 'active').length;
   const admins = users.filter(u => u.role === 'admin').length;
+  const totalInp = users.reduce((s, u) => s + (u.total_input_tokens || 0), 0);
+  const totalOut = users.reduce((s, u) => s + (u.total_output_tokens || 0), 0);
+  const totalCostVal = (totalInp * 0.80 + totalOut * 4.0) / 1000000;
 
   app.innerHTML = `
     <div class="header">
@@ -253,12 +279,14 @@ function render() {
         <div class="stat"><div class="stat-val">${totalUsers}</div><div class="stat-label">Total Users</div></div>
         <div class="stat"><div class="stat-val">${paidUsers}</div><div class="stat-label">Active Subscribers</div></div>
         <div class="stat"><div class="stat-val">${admins}</div><div class="stat-label">Admins</div></div>
+        <div class="stat"><div class="stat-val">${fmtTokens(totalInp, totalOut)}</div><div class="stat-label">Total Tokens</div></div>
+        <div class="stat"><div class="stat-val">$${totalCostVal.toFixed(2)}</div><div class="stat-label">Est. Total Cost</div></div>
       </div>
       ${users.length === 0 ? '<div class="empty">No users found</div>' : `
       <table>
         <thead><tr>
           <th>Email</th><th>Role</th><th>Plan</th><th>Status</th>
-          <th>Paid</th><th>Expires</th><th>Messages</th><th>Created</th><th></th>
+          <th>Paid</th><th>Expires</th><th>Messages</th><th>Tokens</th><th>Est. Cost</th><th>Created</th><th></th>
         </tr></thead>
         <tbody>
           ${users.map(u => {
@@ -270,9 +298,11 @@ function render() {
               <td>${editableCell(u.id, 'plan_type', u.plan_type, 'plan-select')}</td>
               <td>${isEditing && 'subscription_status' in editing[u.id] ? editableCell(u.id, 'subscription_status', u.subscription_status, 'status-select') :
                 `<span class="editable" onclick="startEdit(${u.id},'subscription_status','${u.subscription_status||'active'}')">${statusBadge(u.subscription_status)}</span>`}</td>
-              <td>${fmtDate(u.paid_at)}</td>
-              <td>${editableCell(u.id, 'expires_at', u.expires_at)}</td>
+              <td>${editableCell(u.id, 'paid_at', u.paid_at, 'date')}</td>
+              <td>${editableCell(u.id, 'expires_at', u.expires_at, 'date')}</td>
               <td>${u.message_count ?? 0}</td>
+              <td>${fmtTokens(u.total_input_tokens, u.total_output_tokens)}</td>
+              <td>${fmtCost(u.total_input_tokens, u.total_output_tokens)}</td>
               <td>${fmtDate(u.created_at)}</td>
               <td><div class="actions">
                 ${isEditing ? `

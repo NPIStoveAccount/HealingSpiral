@@ -12,12 +12,18 @@ router.get('/users', async (req, res, next) => {
       SELECT
         u.id, u.email, u.role, u.created_at,
         s.plan_type, s.status AS subscription_status, s.paid_at, s.expires_at,
-        sess.message_count
+        sess.message_count,
+        COALESCE(usg.total_input_tokens, 0) AS total_input_tokens,
+        COALESCE(usg.total_output_tokens, 0) AS total_output_tokens
       FROM users u
       LEFT JOIN subscriptions s ON s.user_id = u.id
         AND s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)
       LEFT JOIN sessions sess ON sess.user_id = u.id
         AND sess.id = (SELECT MAX(id) FROM sessions WHERE user_id = u.id)
+      LEFT JOIN (
+        SELECT user_id, SUM(input_tokens) AS total_input_tokens, SUM(output_tokens) AS total_output_tokens
+        FROM usage_log GROUP BY user_id
+      ) usg ON usg.user_id = u.id
       ORDER BY u.created_at DESC
     `);
     res.json({ users });
@@ -33,7 +39,7 @@ router.put('/users/:id', async (req, res, next) => {
     const user = await dbGet('SELECT id FROM users WHERE id = ?', userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const { email, role, plan_type, subscription_status, expires_at } = req.body;
+    const { email, role, plan_type, subscription_status, expires_at, paid_at } = req.body;
 
     // Update user fields
     if (email || role) {
@@ -48,7 +54,7 @@ router.put('/users/:id', async (req, res, next) => {
     }
 
     // Update or create subscription
-    if (plan_type || subscription_status || expires_at !== undefined) {
+    if (plan_type || subscription_status || expires_at !== undefined || paid_at !== undefined) {
       const existing = await dbGet(
         'SELECT id FROM subscriptions WHERE user_id = ? ORDER BY id DESC LIMIT 1', userId
       );
@@ -58,15 +64,16 @@ router.put('/users/:id', async (req, res, next) => {
         if (plan_type) { fields.push('plan_type = ?'); vals.push(plan_type); }
         if (subscription_status) { fields.push('status = ?'); vals.push(subscription_status); }
         if (expires_at !== undefined) { fields.push('expires_at = ?'); vals.push(expires_at || null); }
+        if (paid_at !== undefined) { fields.push('paid_at = ?'); vals.push(paid_at || null); }
         if (fields.length > 0) {
           vals.push(existing.id);
           await dbRun(`UPDATE subscriptions SET ${fields.join(', ')} WHERE id = ?`, ...vals);
         }
       } else if (plan_type && subscription_status) {
         await dbRun(
-          `INSERT INTO subscriptions (user_id, plan_type, status, expires_at)
-           VALUES (?, ?, ?, ?)`,
-          userId, plan_type, subscription_status, expires_at || null
+          `INSERT INTO subscriptions (user_id, plan_type, status, expires_at, paid_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          userId, plan_type, subscription_status, expires_at || null, paid_at || null
         );
       }
     }

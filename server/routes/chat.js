@@ -68,6 +68,18 @@ router.post('/', optionalAuth, async (req, res) => {
       return res.status(response.status).json(data);
     }
 
+    // Log token usage
+    if (data.usage) {
+      const userId = req.user?.id || null;
+      const inputTokens = data.usage.input_tokens || 0;
+      const outputTokens = data.usage.output_tokens || 0;
+      const usedModel = data.model || model || 'unknown';
+      dbRun(
+        'INSERT INTO usage_log (user_id, input_tokens, output_tokens, model) VALUES (?, ?, ?, ?)',
+        userId, inputTokens, outputTokens, usedModel
+      ).catch(err => logger.warn({ err }, 'Failed to log usage'));
+    }
+
     res.json(data);
   } catch (err) {
     logger.error({ err }, 'Chat API error');
