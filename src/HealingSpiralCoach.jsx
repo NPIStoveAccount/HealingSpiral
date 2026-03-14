@@ -107,6 +107,11 @@ function buildModalityContext(userModalities, userModalitiesOther) {
   return `\n\nMODALITY FAMILIARITY: The user has experience with these healing modalities/frameworks: ${all.join(", ")}. When relevant, use language, concepts, and terminology from these frameworks. Reference specific techniques or principles from modalities they know. This helps the coaching feel personalized and meets them where they are.`;
 }
 
+function buildUserContextNote(userContext) {
+  if (!userContext?.trim()) return "";
+  return `\n\nADDITIONAL CONTEXT FROM USER: After reviewing their profile, the user added this note: "${userContext.trim()}". Keep this in mind as important context for your coaching.`;
+}
+
 const TIER_LABELS = ["", "Exemplary", "Strong", "Moderate", "Developing", "Emerging", "Minimal", "Harmful"];
 
 // ── CLAUDE API CALL ────────────────────────────────────────────────────────
@@ -338,7 +343,7 @@ function usePersisted(key, defaultVal) {
 }
 
 export default function HealingSpiralApp() {
-  // stages: landing | persona | assessment_choice | modality_profile | questionnaire | confirm_assessment | socratic | probing | results | email_capture | paywall | chat
+  // stages: landing | persona | assessment_choice | modality_profile | questionnaire | confirm_assessment | socratic | probing | profile_review | results | email_capture | paywall | chat
   const [stage, setStageRaw] = usePersisted("stage", "landing");
   const setStage = (s) => { setStageRaw(s); };
   const [_personaStored, setPersonaRaw] = usePersisted("persona", null);
@@ -372,6 +377,8 @@ export default function HealingSpiralApp() {
   const [userModalities, setUserModalities] = usePersisted("userModalities", []);
   const [userModalitiesOther, setUserModalitiesOther] = usePersisted("userModalitiesOther", "");
   const [assessmentMethod, setAssessmentMethod] = usePersisted("assessmentMethod", null);
+  const [scoreRationale, setScoreRationale] = usePersisted("scoreRationale", null);
+  const [userContext, setUserContext] = usePersisted("userContext", "");
   const chatBottomRef = useRef(null);
   const probingBottomRef = useRef(null);
   const socraticBottomRef = useRef(null);
@@ -633,7 +640,10 @@ Make sure to ask about what modalities or practices the person is actually engag
 Ask 6-10 questions total. Each question should naturally reveal information about multiple dimensions. If the user hasn't given you enough information to make a judgement about a particular dimension, inquire about it. After you have enough information (at least 6 user exchanges), end your final message with this exact format on its own line:
 [SCORES:{"relational_field":N,"capacity_building":N,"physiological_completion":N,"affect_metabolization":N,"differentiation":N,"implicit_model_updating":N,"identity_reorganization":N,"energetic_reorganization":N,"shadow_integration":N,"nondual_view":N}]
 
-Do NOT show this token to the user or explain it. Just include it naturally at the very end of your final reflective message. Before the scores token, write a warm 2-3 sentence summary of what you've heard and noticed.${buildModalityContext(userModalities, userModalitiesOther)}`;
+Immediately after the SCORES token, on the next line, include a RATIONALE token with a brief 1-2 sentence explanation for each dimension score — what you observed in the conversation that led to that rating:
+[RATIONALE:{"relational_field":"explanation","capacity_building":"explanation","physiological_completion":"explanation","affect_metabolization":"explanation","differentiation":"explanation","implicit_model_updating":"explanation","identity_reorganization":"explanation","energetic_reorganization":"explanation","shadow_integration":"explanation","nondual_view":"explanation"}]
+
+Do NOT show these tokens to the user or explain them. Just include them naturally at the very end of your final reflective message. Before the tokens, write a warm 2-3 sentence summary of what you've heard and noticed.${buildModalityContext(userModalities, userModalitiesOther)}`;
 
   const startSocratic = useCallback(async () => {
     setStage("socratic");
@@ -670,28 +680,38 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
       aiText = "Thank you for sharing that. Let me ask about another area — when strong emotions come up, what tends to happen? Do they move through you, or do they tend to get stuck?";
     }
 
-    // Check for [SCORES:{...}] pattern
+    // Check for [SCORES:{...}] and [RATIONALE:{...}] patterns
     const scoresMatch = aiText.match(/\[SCORES:\s*(\{[^}]+\})\s*\]/);
-    const cleanText = aiText.replace(/\[SCORES:\s*\{[^}]+\}\s*\]/g, "").trim();
+    const rationaleMatch = aiText.match(/\[RATIONALE:\s*(\{[\s\S]*?\})\s*\]/);
+    const cleanText = aiText.replace(/\[SCORES:\s*\{[^}]+\}\s*\]/g, "").replace(/\[RATIONALE:\s*\{[\s\S]*?\}\s*\]/g, "").trim();
 
     setStreamingText("");
     const updated = [...newMsgs, { role: "assistant", content: cleanText }];
     setSocraticMessages(updated);
     setSocraticLoading(false);
 
+    const handleValidScores = (parsedScores, rationaleObj, conversationMsgs) => {
+      setScores(parsedScores);
+      if (rationaleObj) setScoreRationale(rationaleObj);
+      setProbingMessages(conversationMsgs);
+      setProbingDone(true);
+      setTimeout(() => setStage("profile_review"), 1500);
+    };
+
     if (scoresMatch) {
       try {
         const parsed = JSON.parse(scoresMatch[1]);
+        let rationale = null;
+        if (rationaleMatch) {
+          try { rationale = JSON.parse(rationaleMatch[1]); } catch (e) { console.warn("Could not parse rationale:", e); }
+        }
         // Validate all 10 dimensions present with values 1-7
         const validDimensions = DIMENSIONS.filter(d => {
           const v = parsed[d.id];
           return typeof v === "number" && v >= 1 && v <= 7;
         });
         if (validDimensions.length === DIMENSIONS.length) {
-          setScores(parsed);
-          setProbingMessages(updated); // Store socratic conversation as probing context
-          setProbingDone(true);
-          setTimeout(() => setStage("results"), 1500);
+          handleValidScores(parsed, rationale, updated);
         } else {
           // Retry: ask AI to provide complete scores
           const missing = DIMENSIONS.filter(d => {
@@ -700,25 +720,25 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
           }).map(d => d.id);
           console.warn("Incomplete scores, missing:", missing);
           setSocraticLoading(true);
-          const retryMsgs = [...updated, { role: "user", content: `[SYSTEM: Your score output was incomplete — missing or invalid values for: ${missing.join(", ")}. Please provide the complete scores token with all 10 dimensions rated 1-7. Do not show it to me, just append it to a brief closing remark.]` }];
+          const retryMsgs = [...updated, { role: "user", content: `[SYSTEM: Your score output was incomplete — missing or invalid values for: ${missing.join(", ")}. Please provide the complete SCORES and RATIONALE tokens with all 10 dimensions. Do not show them to me, just append them to a brief closing remark.]` }];
           try {
             let retryText = await callClaude(retryMsgs, socraticSystemPrompt, (partial) => setStreamingText(partial));
-            const retryMatch = retryText.match(/\[SCORES:\s*(\{[^}]+\})\s*\]/);
+            const retryScoresMatch = retryText.match(/\[SCORES:\s*(\{[^}]+\})\s*\]/);
+            const retryRationaleMatch = retryText.match(/\[RATIONALE:\s*(\{[\s\S]*?\})\s*\]/);
             setStreamingText("");
-            if (retryMatch) {
-              const retryParsed = JSON.parse(retryMatch[1]);
+            if (retryScoresMatch) {
+              const retryParsed = JSON.parse(retryScoresMatch[1]);
               const retryValid = DIMENSIONS.every(d => {
                 const v = retryParsed[d.id];
                 return typeof v === "number" && v >= 1 && v <= 7;
               });
               if (retryValid) {
-                const retryClean = retryText.replace(/\[SCORES:\s*\{[^}]+\}\s*\]/g, "").trim();
+                let retryRationale = null;
+                if (retryRationaleMatch) { try { retryRationale = JSON.parse(retryRationaleMatch[1]); } catch(e) {} }
+                const retryClean = retryText.replace(/\[SCORES:\s*\{[^}]+\}\s*\]/g, "").replace(/\[RATIONALE:\s*\{[\s\S]*?\}\s*\]/g, "").trim();
                 const finalMsgs = [...updated, { role: "assistant", content: retryClean }];
                 setSocraticMessages(finalMsgs);
-                setScores(retryParsed);
-                setProbingMessages(finalMsgs);
-                setProbingDone(true);
-                setTimeout(() => setStage("results"), 1500);
+                handleValidScores(retryParsed, retryRationale || rationale, finalMsgs);
               }
             }
           } catch (e) {
@@ -731,6 +751,39 @@ Do NOT show this token to the user or explain it. Just include it naturally at t
       }
     }
   };
+
+  // Generate rationale for questionnaire-path scores (called when entering profile_review without existing rationale)
+  const generateRationale = useCallback(async () => {
+    if (!scores || scoreRationale) return;
+    const scoresDesc = DIMENSIONS.map(d => `${d.label}: tier ${scores[d.id]} (${TIER_LABELS[scores[d.id]]})`).join(", ");
+    const conversationContext = probingMessages.length > 0
+      ? `\n\nConversation during intake:\n${probingMessages.map(m => `${m.role}: ${m.content}`).join("\n")}`
+      : "";
+    const prompt = `${getSystemPrompt(persona, clinicalMode)}
+
+You are reviewing a Healing Spiral assessment. The person's scores are: ${scoresDesc}.${conversationContext}
+
+For each dimension, write a brief 1-2 sentence observation explaining what this score level typically reflects. If conversation context is available, reference specific things the person shared. Be warm and insightful.
+
+Respond ONLY with a JSON object mapping dimension IDs to explanation strings, like:
+{"relational_field":"Your explanation here","capacity_building":"Your explanation here",...}
+
+Include all 10 dimensions. Do NOT wrap in markdown code blocks.`;
+
+    try {
+      const aiText = await callClaude([{ role: "user", content: prompt }], prompt);
+      // Parse the JSON from the response
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.relational_field) {
+          setScoreRationale(parsed);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not generate rationale:", e);
+    }
+  }, [scores, scoreRationale, probingMessages, persona, clinicalMode]);
 
   const initiateCheckout = useCallback(async (plan = "subscription") => {
     trackEvent('checkout_initiated', { plan });
@@ -785,7 +838,7 @@ Open the coaching session by briefly acknowledging they're back. Offer a numbere
 3. Dig into something that feels stuck or repeating
 4. Look at what might be being avoided or pushed away
 5. Go deeper on a specific dimension from their profile (pick the one most relevant to what they shared — name it and briefly say why)`}
-Personalize each option using what they shared in the intake. Keep the tone warm but efficient — the user has limited messages, so help them choose a focus quickly rather than diving straight into an exercise.${buildModalityContext(userModalities, userModalitiesOther)}`;
+Personalize each option using what they shared in the intake. Keep the tone warm but efficient — the user has limited messages, so help them choose a focus quickly rather than diving straight into an exercise.${buildModalityContext(userModalities, userModalitiesOther)}${buildUserContextNote(userContext)}`;
 
     let aiText = "";
     try {
@@ -796,7 +849,7 @@ Personalize each option using what they shared in the intake. Keep the tone warm
     setStreamingText("");
     setChatMessages([{ role: "assistant", content: aiText }]);
     setChatLoading(false);
-  }, [persona, scores, probingMessages, clinicalMode, chatMessages.length, previousChatContext, userModalities, userModalitiesOther]);
+  }, [persona, scores, probingMessages, clinicalMode, chatMessages.length, previousChatContext, userModalities, userModalitiesOther, userContext]);
 
   const buildChatSystemPrompt = (topMods, continuationNote) => `${getSystemPrompt(persona, clinicalMode)}
 
@@ -814,7 +867,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
 - The Relational Field is the ground — safe attuned connection that makes all other healing possible
 - Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
 - Three orthogonal dimensions operate independently: Energetic Reorganization, Shadow Integration, Nondual View
-- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.${buildModalityContext(userModalities, userModalitiesOther)}`;
+- Tiers run from 1 (Exemplary) to 7 (Harmful). Lower numbers = more developed.${buildModalityContext(userModalities, userModalitiesOther)}${buildUserContextNote(userContext)}`;
 
   const sendChatDirect = async (text) => {
     if (chatLoading || isMessageCapReached) return;
@@ -913,6 +966,8 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     setUserModalities([]);
     setUserModalitiesOther("");
     setAssessmentMethod(null);
+    setScoreRationale(null);
+    setUserContext("");
   }, []);
 
   // ── RENDER ──────────────────────────────────────────────────────────────
@@ -1151,11 +1206,22 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           bottomRef={probingBottomRef}
           onInput={setProbingInput}
           onSend={sendProbingMessage}
-          onDone={() => setStage("results")}
+          onDone={() => setStage("profile_review")}
           currentPersona={persona}
           onPersonaChange={setPersona}
           clinicalMode={clinicalMode}
           onToggleClinical={() => setClinicalMode(c => !c)}
+        />
+      )}
+
+      {stage === "profile_review" && scores && (
+        <ProfileReview
+          scores={scores}
+          rationale={scoreRationale}
+          userContext={userContext}
+          onContextChange={setUserContext}
+          onGenerateRationale={generateRationale}
+          onContinue={() => setStage("results")}
         />
       )}
 
@@ -1909,6 +1975,102 @@ function SocraticAssessment({ messages, input, loading, streaming, bottomRef, on
             autoFocus
           />
           <button style={styles.sendBtn} onClick={() => handleSend()} disabled={loading || !input.trim()}>→</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PROFILE REVIEW ────────────────────────────────────────────────────────
+
+function ProfileReview({ scores, rationale, userContext, onContextChange, onGenerateRationale, onContinue }) {
+  const [expandedDim, setExpandedDim] = useState(null);
+
+  // Generate rationale on mount if not already present
+  useEffect(() => {
+    if (!rationale) onGenerateRationale();
+  }, [rationale, onGenerateRationale]);
+
+  return (
+    <div style={styles.page}>
+      <div style={{ ...styles.sectionInner, maxWidth: 720 }}>
+        <div style={styles.spiralGlyph}>◎</div>
+        <h2 style={styles.sectionTitle}>Review Your Profile</h2>
+        <p style={styles.sectionSub}>
+          Here's what we observed across each dimension — tap any to see why.
+        </p>
+
+        <div style={{ width: "100%", textAlign: "left", marginBottom: "1.5rem" }}>
+          {DIMENSIONS.map(d => {
+            const tier = scores[d.id];
+            const pct = Math.max(10, ((7 - tier) / 6) * 100);
+            const isExpanded = expandedDim === d.id;
+            const reason = rationale?.[d.id];
+            return (
+              <div key={d.id} style={{ marginBottom: "0.4rem" }}>
+                <button
+                  onClick={() => setExpandedDim(prev => prev === d.id ? null : d.id)}
+                  style={{
+                    width: "100%", background: isExpanded ? "rgba(201,162,39,0.06)" : "transparent",
+                    border: "none", padding: "0.5rem 0.4rem", cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: "0.6rem",
+                    borderRadius: 6, transition: "all 0.15s", fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ fontSize: "1.1rem", width: 24, textAlign: "center", flexShrink: 0 }}>{d.emoji}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
+                      <span style={{ fontSize: "0.88rem", color: "var(--text)", fontWeight: 500 }}>{d.label}</span>
+                      <span style={{
+                        fontSize: "0.7rem", padding: "0.15rem 0.5rem", borderRadius: 12,
+                        background: getTierColor(tier), color: "#fff", fontWeight: 600,
+                      }}>{TIER_LABELS[tier]}</span>
+                    </div>
+                    <div style={{ height: 4, background: "rgba(255,255,255,0.08)", borderRadius: 2 }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: getTierColor(tier), borderRadius: 2, transition: "width 0.3s" }} />
+                    </div>
+                  </div>
+                  <span style={{ fontSize: "0.7rem", opacity: 0.4, flexShrink: 0 }}>{isExpanded ? "▾" : "▸"}</span>
+                </button>
+                {isExpanded && (
+                  <div style={{
+                    padding: "0.6rem 0.8rem 0.8rem 2.8rem",
+                    fontSize: "0.88rem", opacity: 0.75, lineHeight: 1.5,
+                    fontStyle: "italic", color: "var(--text)",
+                  }}>
+                    {reason || "Generating insight..."}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ width: "100%", textAlign: "left", marginBottom: "1.5rem" }}>
+          <label style={{ fontSize: "0.9rem", fontWeight: 500, display: "block", marginBottom: "0.5rem", color: "var(--gold)" }}>
+            Anything you'd like to add or clarify?
+          </label>
+          <p style={{ fontSize: "0.82rem", opacity: 0.5, marginBottom: "0.5rem" }}>
+            Is there context the assessment might have missed? Anything you'd want your coach to know?
+          </p>
+          <textarea
+            value={userContext}
+            onChange={e => onContextChange(e.target.value)}
+            placeholder="e.g., I've been doing a lot of somatic work lately that might not have come through, or I'm in a particularly intense period right now..."
+            style={{
+              width: "100%", minHeight: 90, padding: "0.8rem 1rem",
+              background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+              borderRadius: 6, color: "var(--text)", fontSize: "0.92rem",
+              fontFamily: "inherit", outline: "none", resize: "vertical",
+              boxSizing: "border-box", lineHeight: 1.5,
+            }}
+          />
+        </div>
+
+        <div style={styles.navRow}>
+          <button style={styles.primaryBtn} onClick={onContinue}>
+            Continue to Profile →
+          </button>
         </div>
       </div>
     </div>
