@@ -556,13 +556,13 @@ export default function HealingSpiralApp() {
         headers: authHeaders(),
         body: JSON.stringify({
           scores, persona: persona?.id, clinicalMode,
-          chatMessages: chatMessages.slice(-50), // Keep last 50 messages
+          chatMessages: chatMessages,
           chatSummary, messageCount: userMessageCount,
           assessmentMethod, sliderResponses, scoreRationale,
           userModalities, userModalitiesOther: userModalitiesOther || null,
           userContext: userContext || null,
-          probingMessages: probingMessages.slice(-50),
-          socraticMessages: socraticMessages.slice(-50),
+          probingMessages: probingMessages,
+          socraticMessages: socraticMessages,
         }),
       }).catch(() => {});
     }, 5000);
@@ -1037,7 +1037,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
 
   const clearAllData = useCallback(() => {
     // Auto-download a local export before clearing so data is never lost
-    try { downloadLocalExport(); } catch {}
+    try { downloadLocalExport({ journalEntries }); } catch {}
     // Archive current session server-side before clearing (for authenticated users)
     if (authToken) {
       // First, do a final sync to make sure all data is saved
@@ -1047,13 +1047,13 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           headers: authHeaders(),
           body: JSON.stringify({
             scores, persona: persona?.id, clinicalMode,
-            chatMessages: chatMessages.slice(-50),
+            chatMessages: chatMessages,
             chatSummary, messageCount: userMessageCount,
             assessmentMethod, sliderResponses, scoreRationale,
             userModalities, userModalitiesOther: userModalitiesOther || null,
             userContext: userContext || null,
-            probingMessages: probingMessages.slice(-50),
-            socraticMessages: socraticMessages.slice(-50),
+            probingMessages: probingMessages,
+            socraticMessages: socraticMessages,
           }),
         })
           .then(() => fetch('/api/sessions/archive', {
@@ -1614,11 +1614,11 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   scores, persona: _personaStored?.id, clinicalMode,
-                  chatMessages: chatMessages.slice(-50), chatSummary,
+                  chatMessages: chatMessages, chatSummary,
                   messageCount: userMessageCount, assessmentMethod, sliderResponses,
                   scoreRationale, userModalities, userModalitiesOther: userModalitiesOther || null,
-                  userContext: userContext || null, probingMessages: probingMessages.slice(-50),
-                  socraticMessages: socraticMessages.slice(-50),
+                  userContext: userContext || null, probingMessages: probingMessages,
+                  socraticMessages: socraticMessages,
                 }),
               }).catch(() => {});
             }
@@ -2779,7 +2779,7 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         }}>
           Book a session with Eli
         </a>
-        <button onClick={downloadLocalExport} style={{
+        <button onClick={() => downloadLocalExport({ journalEntries })} style={{
           width: "100%", padding: "0.25rem 0.5rem", borderRadius: 4,
           background: "rgba(201,162,39,0.08)", border: "1px solid rgba(201,162,39,0.2)",
           color: "var(--gold)", fontFamily: "inherit", fontSize: "0.55rem",
@@ -2793,7 +2793,7 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         <SubscriptionManager authToken={authToken} subscription={authSubscription} onStatusChange={onSubscriptionChange} />
       )}
       {onClearData && (
-        <ClearDataButton onClear={onClearData} authToken={authToken} />
+        <ClearDataButton onClear={onClearData} authToken={authToken} journalEntries={journalEntries} />
       )}
     </>
   );
@@ -3029,6 +3029,7 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         onSubscriptionChange={onSubscriptionChange}
         onClearData={onClearData}
         onAuthLogin={onAuthLogin}
+        journalEntries={journalEntries}
       />
     </div>
   );
@@ -3521,7 +3522,7 @@ function SubscriptionManager({ authToken, subscription, onStatusChange }) {
 
 // ── SETTINGS PANEL ────────────────────────────────────────────────────────
 
-function buildLocalExportMarkdown() {
+function buildLocalExportMarkdown(extras = {}) {
   // Gather all localStorage data — works without auth
   let data = {};
   try {
@@ -3632,6 +3633,31 @@ function buildLocalExportMarkdown() {
     md += `## Session Summary\n\n${data.chatSummary}\n\n`;
   }
 
+  // Previous chat context
+  if (data.previousChatContext) {
+    md += `## Previous Session Context\n\n${data.previousChatContext}\n\n`;
+  }
+
+  // Journal entries (passed from React state since they're server-side)
+  const journals = extras.journalEntries || [];
+  if (journals.length > 0) {
+    md += `## Journal Entries\n\n`;
+    journals.forEach(j => {
+      const date = j.createdAt ? new Date(j.createdAt).toLocaleString() : 'Unknown date';
+      md += `### ${date}`;
+      if (j.mood) md += ` ${j.mood}`;
+      if (j.dimension) {
+        const d = DIMENSIONS.find(dd => dd.id === j.dimension);
+        md += ` — ${d?.label || j.dimension}`;
+      }
+      md += `\n\n`;
+      if (j.prompt) md += `*Prompt: ${j.prompt}*\n\n`;
+      md += `${j.content}\n\n`;
+      if (j.aiReflection) md += `**AI Reflection:** ${j.aiReflection}\n\n`;
+      md += `---\n\n`;
+    });
+  }
+
   // Email
   if (data.email) {
     md += `**Email:** ${data.email}\n\n`;
@@ -3641,8 +3667,8 @@ function buildLocalExportMarkdown() {
   return md;
 }
 
-function downloadLocalExport() {
-  const md = buildLocalExportMarkdown();
+function downloadLocalExport(extras = {}) {
+  const md = buildLocalExportMarkdown(extras);
   const blob = new Blob([md], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -3652,7 +3678,7 @@ function downloadLocalExport() {
   URL.revokeObjectURL(url);
 }
 
-function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscriptionChange, onClearData, onAuthLogin }) {
+function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscriptionChange, onClearData, onAuthLogin, journalEntries }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordMsg, setPasswordMsg] = useState(null);
@@ -3876,7 +3902,7 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
           <div>
             <div style={sectionLabel}>Data Management</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-              <button onClick={() => { downloadLocalExport(); showFeedback("Export downloaded", "success"); }} style={{
+              <button onClick={() => { downloadLocalExport({ journalEntries }); showFeedback("Export downloaded", "success"); }} style={{
                 ...btnStyle, color: "var(--gold)", borderColor: "rgba(201,162,39,0.25)",
               }}>⬇ Download My Data (.md)</button>
               {authToken && <button onClick={handleExport} style={btnStyle}>Export Server Data (.md)</button>}
@@ -3935,7 +3961,7 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
   );
 }
 
-function ClearDataButton({ onClear, authToken }) {
+function ClearDataButton({ onClear, authToken, journalEntries }) {
   const [expanded, setExpanded] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmServerDelete, setConfirmServerDelete] = useState(false);
@@ -4044,7 +4070,7 @@ function ClearDataButton({ onClear, authToken }) {
             Your Data
           </div>
 
-          <button onClick={() => { downloadLocalExport(); showFeedback("Export downloaded", "success"); }} style={btnStyle}>
+          <button onClick={() => { downloadLocalExport({ journalEntries }); showFeedback("Export downloaded", "success"); }} style={btnStyle}>
             Export context (.md)
           </button>
 
