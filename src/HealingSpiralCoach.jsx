@@ -570,8 +570,6 @@ export default function HealingSpiralApp() {
   }, [authToken, scores, chatMessages, userMessageCount, assessmentMethod, sliderResponses, scoreRationale, userModalities, probingMessages, socraticMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const FREE_MESSAGE_LIMIT = 20;
-  const SUMMARIZE_THRESHOLD = 24;
-  const KEEP_RECENT = 8;
   const isMessageCapReached = !paymentVerified && userMessageCount >= FREE_MESSAGE_LIMIT;
 
   const addToast = useCallback((message, type = "info") => {
@@ -627,32 +625,6 @@ export default function HealingSpiralApp() {
   useEffect(() => {
     socraticBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [socraticMessages]);
-
-  // Summarize older messages and trim the history to keep context manageable
-  const summarizeAndTrim = useCallback(async (messages) => {
-    const toSummarize = messages.slice(0, messages.length - KEEP_RECENT);
-    const recent = messages.slice(-KEEP_RECENT);
-
-    const summaryInput = toSummarize.map(m => `${m.role}: ${m.content}`).join("\n\n");
-
-    const prompt = chatSummary
-      ? `Here is the existing summary of earlier conversation:\n${chatSummary}\n\nNow summarize this additional conversation, integrating it with the existing summary. Capture key themes, patterns, insights, breakthroughs, and where the conversation was heading. Write 3-5 sentences max. Use second person ("you").\n\n${summaryInput}`
-      : `Summarize this coaching conversation concisely. Capture key themes, patterns the person identified, insights or breakthroughs, and where the conversation was heading. Write 3-5 sentences max. Use second person ("you").\n\n${summaryInput}`;
-
-    try {
-      const summary = await callClaude(
-        [{ role: "user", content: prompt }],
-        "You are a concise summarizer. Output only the summary, nothing else.",
-        null
-      );
-      setChatSummary(summary);
-      setChatMessages(recent);
-      return recent;
-    } catch {
-      // If summarization fails, continue with full history
-      return messages;
-    }
-  }, [chatSummary]);
 
   // Start probing after questionnaire
   const startProbing = useCallback(async (responses) => {
@@ -1013,11 +985,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     const systemPrompt = buildChatSystemPrompt(topMods, "Pick up exactly where the conversation left off.");
     // latestMsgs may be undefined if setChatMessages batched — fall back to snapshot
     setTimeout(async () => {
-      let msgs = latestMsgs || [...chatMessages, userMsg];
-      // Summarize and trim if conversation is getting long
-      if (msgs.length > SUMMARIZE_THRESHOLD) {
-        msgs = await summarizeAndTrim(msgs);
-      }
+      const msgs = latestMsgs || [...chatMessages, userMsg];
       try {
         const aiText = await callClaude(msgs.map(m => ({ role: m.role, content: m.content })), systemPrompt, (p) => setStreamingText(p));
         setStreamingText("");
@@ -1039,16 +1007,11 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     if (!inputVal.trim() || chatLoading || isMessageCapReached) return;
     setUserMessageCount(c => c + 1);
     const userMsg = { role: "user", content: inputVal };
-    let newMsgs = [...chatMessages, userMsg];
+    const newMsgs = [...chatMessages, userMsg];
     setChatMessages(newMsgs);
     setChatTranscript(prev => [...prev, userMsg]);
     setChatInput("");
     setChatLoading(true);
-
-    // Summarize and trim if conversation is getting long
-    if (newMsgs.length > SUMMARIZE_THRESHOLD) {
-      newMsgs = await summarizeAndTrim(newMsgs);
-    }
 
     const topMods = getTopModalities(scores, 3).map(m => m.name).join(", ");
     const systemPrompt = buildChatSystemPrompt(topMods, "Stay present with what they just said.");
