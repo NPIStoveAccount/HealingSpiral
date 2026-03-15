@@ -721,6 +721,8 @@ You are doing a brief intake deepening — maximum 2 user exchanges. ${isLastExc
 
 You are conducting an indirect assessment of someone's position across 10 dimensions of the Healing Spiral framework. Do NOT ask them to rate themselves. Instead, ask them questions that help understand where they stand on the different dimensions of contact.
 
+IMPORTANT FRAMING: Early in the conversation, gently communicate that this assessment reflects how they are showing up RIGHT NOW — it's a snapshot, not a fixed diagnosis. People are dynamic, and scores will shift as they grow. This isn't about labeling them — it's about seeing where they are so they can move from here. Use your own words, woven naturally into the conversation.
+
 From their answers, you will privately assess where they fall on each dimension (1=Exemplary, 2=Strong, 3=Moderate, 4=Developing, 5=Emerging, 6=Minimal, 7=Harmful).
 
 The 10 dimensions are:
@@ -1050,6 +1052,8 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
   };
 
   const clearAllData = useCallback(() => {
+    // Auto-download a local export before clearing so data is never lost
+    try { downloadLocalExport(); } catch {}
     // Archive current session server-side before clearing (for authenticated users)
     if (authToken) {
       // First, do a final sync to make sure all data is saved
@@ -1226,15 +1230,19 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
       )}
       
       {stage === "persona" && (
-        <PersonaSelect onSelect={(p) => { setPersona(p); setStage("assessment_choice"); }} />
+        <PersonaSelect onSelect={(p) => { setPersona(p); setStage("assessment_choice"); }} onBack={() => setStage("landing")} />
       )}
 
       {stage === "assessment_choice" && (
         <div style={styles.page}>
+          <BackButton onClick={() => setStage("persona")} />
           <div style={styles.sectionInner}>
             <div style={styles.spiralGlyph}>◎</div>
             <h2 style={styles.sectionTitle}>How Would You Like to Be Assessed?</h2>
             <p style={styles.sectionSub}>Choose the approach that feels right for you.</p>
+            <p style={{ fontSize: "0.8rem", opacity: 0.4, maxWidth: 480, lineHeight: 1.6, marginTop: "0.25rem" }}>
+              Your results will be saved and available to you after the assessment — you can review, export, or revisit them anytime.
+            </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem", maxWidth: 560, width: "100%" }}>
               <button
                 onClick={() => { setAssessmentMethod("questionnaire"); setStage("modality_profile"); }}
@@ -1323,6 +1331,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
 
       {stage === "confirm_assessment" && (
         <div style={styles.page}>
+          <BackButton onClick={() => { setCurrentDimIdx(0); setStage("questionnaire"); }} />
           <div style={styles.sectionInner}>
             <div style={styles.spiralGlyph}>◎</div>
             <h2 style={styles.sectionTitle}>Just Checking</h2>
@@ -1391,6 +1400,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           onContextChange={setUserContext}
           onGenerateRationale={generateRationale}
           onContinue={() => setStage("results")}
+          onBack={() => setStage(assessmentMethod === "socratic" ? "assessment_choice" : "questionnaire")}
         />
       )}
 
@@ -1398,6 +1408,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
         <Results
           scores={scores}
           modalities={getTopModalities(scores, 5)}
+          onBack={() => setStage("profile_review")}
           onEmailCapture={() => {
             // If user is already logged in, skip email capture — send report in background and go to paywall
             if (email && email.includes("@") && emailSubmitted) {
@@ -1453,6 +1464,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           email={email}
           onChange={setEmail}
           loading={emailSending}
+          onBack={() => setStage("results")}
           onSubmit={async () => {
             setEmailSending(true);
             setEmailSubmitted(true);
@@ -1513,7 +1525,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
       )}
 
       {stage === "paywall" && (
-        <Paywall onUnlock={() => startChat()} reportSent={emailSubmitted && email} messagesUsed={userMessageCount} />
+        <Paywall onUnlock={() => startChat()} reportSent={emailSubmitted && email} messagesUsed={userMessageCount} onBack={() => setStage("results")} />
       )}
 
       {stage === "chat" && apiError && (
@@ -1632,6 +1644,12 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             setCloudSyncStatus(prev => ({ ...prev, [service]: false }));
           }}
           fetchJournalEntries={fetchJournalEntries}
+          userModalities={userModalities}
+          onToggleModality={(key) => setUserModalities(prev =>
+            prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+          )}
+          userModalitiesOther={userModalitiesOther}
+          onModalitiesOtherChange={setUserModalitiesOther}
         />
       )}
 
@@ -1793,8 +1811,11 @@ function Landing({ onStart, onLogin, onAuthLogin, onClearData }) {
               </button>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "0.75rem", color: "var(--gold)" }}>
+                  💡 Create an account first to keep a backup of your data.
+                </span>
                 <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)" }}>
-                  This will erase your profile, scores, and chat history.
+                  A copy will be downloaded automatically before clearing.
                 </span>
                 <div style={{ display: "flex", gap: "0.75rem" }}>
                   <button onClick={() => { onClearData(); setConfirmClear(false); }} style={{
@@ -1869,11 +1890,29 @@ function ReturningUser({ email, scores, onContinueChat, onNewAssessment }) {
 
 // ── PERSONA SELECT ─────────────────────────────────────────────────────────
 
-function PersonaSelect({ onSelect }) {
+function BackButton({ onClick, label }) {
+  return (
+    <button onClick={onClick} style={{
+      position: "absolute", top: "1rem", left: "1rem", zIndex: 10,
+      background: "none", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: 4, color: "rgba(255,255,255,0.35)", fontSize: "0.7rem",
+      padding: "0.3rem 0.6rem", cursor: "pointer", fontFamily: "inherit",
+      letterSpacing: "0.03em", transition: "all 0.2s",
+    }}
+    onMouseEnter={e => { e.target.style.color = "var(--gold)"; e.target.style.borderColor = "var(--gold)"; }}
+    onMouseLeave={e => { e.target.style.color = "rgba(255,255,255,0.35)"; e.target.style.borderColor = "rgba(255,255,255,0.1)"; }}
+    >
+      ← {label || "Back"}
+    </button>
+  );
+}
+
+function PersonaSelect({ onSelect, onBack }) {
   const [hovered, setHovered] = useState(null);
   const isMobile = useIsMobile();
   return (
     <div style={styles.page}>
+      {onBack && <BackButton onClick={onBack} />}
       <div style={styles.sectionInner}>
         <h2 style={styles.sectionTitle}>Choose Your Coach</h2>
         <p style={styles.sectionSub}>Your AI coach will accompany you through the assessment and into deeper work.</p>
@@ -2221,7 +2260,7 @@ function SocraticAssessment({ messages, input, loading, streaming, bottomRef, on
 
 // ── PROFILE REVIEW ────────────────────────────────────────────────────────
 
-function ProfileReview({ scores, rationale, userContext, onContextChange, onGenerateRationale, onContinue }) {
+function ProfileReview({ scores, rationale, userContext, onContextChange, onGenerateRationale, onContinue, onBack }) {
   const [expandedDim, setExpandedDim] = useState(null);
 
   // Generate rationale on mount if not already present
@@ -2231,6 +2270,7 @@ function ProfileReview({ scores, rationale, userContext, onContextChange, onGene
 
   return (
     <div style={styles.page}>
+      {onBack && <BackButton onClick={onBack} />}
       <div style={{ ...styles.sectionInner, maxWidth: 720 }}>
         <div style={styles.spiralGlyph}>◎</div>
         <h2 style={styles.sectionTitle}>Review Your Profile</h2>
@@ -2317,11 +2357,12 @@ function ProfileReview({ scores, rationale, userContext, onContextChange, onGene
 
 // ── RESULTS ────────────────────────────────────────────────────────────────
 
-function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCoaching }) {
+function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCoaching, onBack }) {
   const lowestDims = DIMENSIONS.filter(d => scores[d.id] >= 5);
-  
+
   return (
     <div style={styles.page}>
+      {onBack && <BackButton onClick={onBack} />}
       <div style={styles.sectionInner}>
         <div style={styles.spiralGlyph}>◎</div>
         <h2 style={styles.sectionTitle}>Your Healing Spiral Profile</h2>
@@ -2358,13 +2399,34 @@ function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCo
         )}
 
         <h3 style={styles.subheading}>Top Recommended Modalities</h3>
-        <div style={styles.modList}>
-          {modalities.slice(0, 3).map(m => (
-            <div key={m.name} style={styles.modChip}>
-              <span style={styles.modName}>{m.name}</span>
-              <span style={styles.modDims}>{m.dimensions.map(d => DIMENSIONS.find(x => x.id === d)?.emoji).join(" ")}</span>
-            </div>
-          ))}
+        <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "1.5rem" }}>
+          {modalities.slice(0, 3).map(m => {
+            const targetDims = m.dimensions.map(d => DIMENSIONS.find(x => x.id === d)).filter(Boolean);
+            return (
+              <div key={m.name} style={{
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(201,162,39,0.15)",
+                borderRadius: 8, padding: "0.75rem 1rem",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
+                  <span style={{ fontSize: "1rem", fontWeight: 600 }}>{m.name}</span>
+                  <span style={{ fontSize: "0.85rem", opacity: 0.5 }}>{targetDims.map(d => d.emoji).join(" ")}</span>
+                </div>
+                <div style={{ fontSize: "0.78rem", opacity: 0.5, lineHeight: 1.5 }}>
+                  Targets {targetDims.map((d, i) => (
+                    <span key={d.id}>
+                      <strong style={{ opacity: 0.8 }}>{d.label}</strong>
+                      {scores[d.id] >= 5 ? ' (growth edge)' : ''}
+                      {i < targetDims.length - 1 ? ' and ' : ''}
+                    </span>
+                  ))}
+                  {' — '}
+                  {targetDims.some(d => scores[d.id] >= 5)
+                    ? 'directly addresses your areas with the most room for development.'
+                    : 'strengthens dimensions where you already have some foundation.'}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         <div style={styles.paywallTeaser}>
@@ -2401,9 +2463,10 @@ function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCo
 
 // ── EMAIL CAPTURE ──────────────────────────────────────────────────────────
 
-function EmailCapture({ email, onChange, onSubmit, loading }) {
+function EmailCapture({ email, onChange, onSubmit, loading, onBack }) {
   return (
     <div style={styles.page}>
+      {onBack && <BackButton onClick={onBack} />}
       <div style={styles.sectionInner}>
         <div style={styles.spiralGlyph}>◎</div>
         <h2 style={styles.sectionTitle}>Your Full Report</h2>
@@ -2437,9 +2500,10 @@ function EmailCapture({ email, onChange, onSubmit, loading }) {
 
 // ── PAYWALL ────────────────────────────────────────────────────────────────
 
-function Paywall({ onUnlock, reportSent, messagesUsed = 0 }) {
+function Paywall({ onUnlock, reportSent, messagesUsed = 0, onBack }) {
   return (
     <div style={styles.page}>
+      {onBack && <BackButton onClick={onBack} />}
       <div style={styles.sectionInner}>
         <div style={styles.spiralGlyph}>◎</div>
         <h2 style={styles.sectionTitle}>Begin the Coaching</h2>
@@ -2476,11 +2540,13 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0 }) {
 
 // ── COACHING CHAT ──────────────────────────────────────────────────────────
 
-function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange, journalEntries, journalComposing, setJournalComposing, journalMood, setJournalMood, journalDimension, setJournalDimension, journalText, setJournalText, journalPanelOpen, setJournalPanelOpen, journalLoading, onSaveJournal, onRequestReflection, onExportJournal, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, fetchJournalEntries }) {
+function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange, journalEntries, journalComposing, setJournalComposing, journalMood, setJournalMood, journalDimension, setJournalDimension, journalText, setJournalText, journalPanelOpen, setJournalPanelOpen, journalLoading, onSaveJournal, onRequestReflection, onExportJournal, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, fetchJournalEntries, userModalities, onToggleModality, userModalitiesOther, onModalitiesOtherChange }) {
   const topMods = getTopModalities(scores, 3);
   const chatInputRef = useRef(null);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [modalityEditorOpen, setModalityEditorOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Auto-close sidebar when switching from mobile to desktop
   useEffect(() => { if (!isMobile) setSidebarOpen(false); }, [isMobile]);
@@ -2503,7 +2569,15 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
       )}
       <div style={styles.sidebarHeader}>
         <div style={styles.spiralGlyphSmall}>◎</div>
-        <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>Healing Spiral</span>
+        <span style={{ fontSize: "0.85rem", opacity: 0.7, flex: 1 }}>Healing Spiral</span>
+        <button onClick={() => setSettingsOpen(true)} title="Settings" style={{
+          background: "none", border: "none", color: "rgba(255,255,255,0.35)",
+          fontSize: "1rem", cursor: "pointer", padding: "0.2rem",
+          transition: "color 0.2s",
+        }}
+        onMouseEnter={e => e.target.style.color = "var(--gold)"}
+        onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.35)"}
+        >⚙</button>
       </div>
       <div style={{ padding: "1rem", borderBottom: '1px solid var(--border)' }}>
         <div style={styles.sidebarLabel}>COACH VOICE</div>
@@ -2543,10 +2617,64 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         })}
       </div>
       <div style={styles.sidebarSection}>
-        <div style={styles.sidebarLabel}>TOP MODALITIES</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={styles.sidebarLabel}>RECOMMENDED MODALITIES</div>
+          <button onClick={() => setModalityEditorOpen(v => !v)} style={{
+            background: "none", border: "none", color: "var(--gold)", fontSize: "0.55rem",
+            cursor: "pointer", fontFamily: "inherit", opacity: 0.6, padding: "0 0.2rem",
+            letterSpacing: "0.03em",
+          }}>{modalityEditorOpen ? "Done" : "Edit"}</button>
+        </div>
         {topMods.map(m => (
           <div key={m.name} style={styles.sidebarMod}>{m.name}</div>
         ))}
+        {modalityEditorOpen && (
+          <div style={{ marginTop: "0.5rem", borderTop: "1px solid var(--border)", paddingTop: "0.5rem" }}>
+            <div style={{ fontSize: "0.6rem", opacity: 0.4, marginBottom: "0.4rem" }}>
+              Your healing background — helps the coach speak your language:
+            </div>
+            {Object.entries(MOD_CATEGORIES).map(([category, keys]) => {
+              const selectedInCategory = keys.filter(k => userModalities.includes(k)).length;
+              return (
+                <details key={category} style={{ marginBottom: "0.25rem" }}>
+                  <summary style={{
+                    fontSize: "0.7rem", color: "var(--gold)", cursor: "pointer", padding: "0.25rem 0",
+                    opacity: selectedInCategory > 0 ? 1 : 0.6,
+                  }}>
+                    {category} {selectedInCategory > 0 ? `(${selectedInCategory})` : ""}
+                  </summary>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", padding: "0.3rem 0 0.4rem 0.5rem" }}>
+                    {keys.map(key => {
+                      const isSelected = userModalities.includes(key);
+                      return (
+                        <button key={key} onClick={() => onToggleModality(key)} style={{
+                          padding: "0.15rem 0.5rem", borderRadius: 12, fontSize: "0.6rem",
+                          border: isSelected ? "1px solid var(--gold)" : "1px solid var(--border)",
+                          background: isSelected ? "rgba(201,162,39,0.15)" : "transparent",
+                          color: isSelected ? "var(--gold)" : "var(--text)",
+                          fontFamily: "inherit", cursor: "pointer", opacity: isSelected ? 1 : 0.6,
+                          transition: "all 0.15s",
+                        }}>{MODS[key]}</button>
+                      );
+                    })}
+                  </div>
+                </details>
+              );
+            })}
+            <input
+              type="text"
+              value={userModalitiesOther}
+              onChange={e => onModalitiesOtherChange(e.target.value)}
+              placeholder="Other modalities..."
+              style={{
+                width: "100%", padding: "0.3rem 0.5rem", marginTop: "0.3rem",
+                background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)",
+                borderRadius: 4, color: "var(--text)", fontSize: "0.65rem",
+                fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+              }}
+            />
+          </div>
+        )}
       </div>
       <div style={{ ...styles.sidebarSection, borderBottom: "1px solid var(--border)" }}>
         <div style={styles.sidebarLabel}>JOURNAL</div>
@@ -2570,7 +2698,15 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
           View all entries
         </button>
       </div>
-      <div style={{ padding: "0.75rem", borderTop: "1px solid var(--border)" }}>
+      <div style={{ padding: "0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+        <a href="https://www.newpowerindustry.com/healingspiral/app" target="_blank" rel="noopener noreferrer" style={{
+          display: "block", color: "var(--gold)", opacity: 0.6,
+          fontSize: "0.65rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+          textDecoration: "none", textAlign: "center", letterSpacing: "0.05em",
+          textTransform: "uppercase",
+        }}>
+          View Your Full Profile →
+        </a>
         <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
           display: "block", color: "var(--gold)", opacity: 0.45,
           fontSize: "0.65rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
@@ -2579,6 +2715,17 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         }}>
           Book a live session with Eli
         </a>
+      </div>
+      <div style={{ padding: "0.5rem 0.75rem" }}>
+        <button onClick={downloadLocalExport} style={{
+          width: "100%", padding: "0.4rem 0.5rem", borderRadius: 4,
+          background: "rgba(201,162,39,0.08)", border: "1px solid rgba(201,162,39,0.2)",
+          color: "var(--gold)", fontFamily: "inherit", fontSize: "0.65rem",
+          cursor: "pointer", letterSpacing: "0.03em", transition: "all 0.2s",
+        }}
+        onMouseEnter={e => { e.target.style.background = "rgba(201,162,39,0.15)"; }}
+        onMouseLeave={e => { e.target.style.background = "rgba(201,162,39,0.08)"; }}
+        >⬇ Download My Data</button>
       </div>
       {authSubscription && (
         <SubscriptionManager authToken={authToken} subscription={authSubscription} onStatusChange={onSubscriptionChange} />
@@ -2810,6 +2957,15 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         onConnectCloud={onConnectCloud}
         onDisconnectCloud={onDisconnectCloud}
         authToken={authToken}
+      />
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        authToken={authToken}
+        authSubscription={authSubscription}
+        onSubscriptionChange={onSubscriptionChange}
+        onClearData={onClearData}
       />
     </div>
   );
@@ -3300,6 +3456,352 @@ function SubscriptionManager({ authToken, subscription, onStatusChange }) {
   );
 }
 
+// ── SETTINGS PANEL ────────────────────────────────────────────────────────
+
+function buildLocalExportMarkdown() {
+  // Gather all localStorage data — works without auth
+  let data = {};
+  try {
+    // Try the active session key first
+    const raw = localStorage.getItem(activeSessionKey);
+    if (raw) data = JSON.parse(raw);
+    // Also check anonymous session if different
+    if (activeSessionKey !== SESSION_KEY_ANON) {
+      const anonRaw = localStorage.getItem(SESSION_KEY_ANON);
+      if (anonRaw) data = { ...JSON.parse(anonRaw), ...data };
+    }
+  } catch {}
+
+  const now = new Date().toISOString();
+  let md = `# Healing Spiral — Session Export\n`;
+  md += `**Exported:** ${new Date().toLocaleString()}\n\n`;
+
+  // Scores
+  if (data.scores) {
+    md += `## Assessment Scores\n\n`;
+    DIMENSIONS.forEach(d => {
+      const score = data.scores[d.id];
+      if (score !== undefined) {
+        const tier = score <= 2 ? "Foundation" : score <= 4 ? "Developing" : "Growth Edge";
+        md += `- ${d.emoji} **${d.label}**: ${score}/7 (${tier})\n`;
+      }
+    });
+    md += `\n`;
+  }
+
+  // Assessment method
+  if (data.assessmentMethod) {
+    md += `**Assessment method:** ${data.assessmentMethod === 'socratic' ? 'Guided Conversation' : 'Self-Assessment'}\n\n`;
+  }
+
+  // Score rationale
+  if (data.scoreRationale) {
+    md += `## Assessment Rationale\n\n`;
+    Object.entries(data.scoreRationale).forEach(([dim, rationale]) => {
+      const d = DIMENSIONS.find(dd => dd.id === dim);
+      if (d && rationale) md += `**${d.label}:** ${rationale}\n\n`;
+    });
+  }
+
+  // Persona
+  if (data.persona) {
+    md += `**Coach voice:** ${data.persona.name || data.persona.id}\n\n`;
+  }
+
+  // Modalities
+  if (data.userModalities?.length) {
+    md += `## Selected Modalities\n\n`;
+    data.userModalities.forEach(m => {
+      md += `- ${MODS[m] || m}\n`;
+    });
+    if (data.userModalitiesOther) md += `- ${data.userModalitiesOther}\n`;
+    md += `\n`;
+  }
+
+  // User context
+  if (data.userContext) {
+    md += `## User Context\n\n${data.userContext}\n\n`;
+  }
+
+  // Slider responses
+  if (data.sliderResponses && Object.keys(data.sliderResponses).length) {
+    md += `## Self-Assessment Responses\n\n`;
+    Object.entries(data.sliderResponses).forEach(([dim, val]) => {
+      const d = DIMENSIONS.find(dd => dd.id === dim);
+      if (d) md += `- ${d.emoji} ${d.label}: ${val}/7\n`;
+    });
+    md += `\n`;
+  }
+
+  // Probing messages
+  if (data.probingMessages?.length) {
+    md += `## Deepening Conversation\n\n`;
+    data.probingMessages.forEach(m => {
+      const speaker = m.role === 'user' ? '**You**' : '**Coach**';
+      md += `${speaker}: ${m.content}\n\n`;
+    });
+  }
+
+  // Socratic messages
+  if (data.socraticMessages?.length) {
+    md += `## Guided Assessment Conversation\n\n`;
+    data.socraticMessages.forEach(m => {
+      const speaker = m.role === 'user' ? '**You**' : '**Coach**';
+      // Strip hidden tokens from display
+      const content = (m.content || '').replace(/\[SCORES:\{.*?\}\]/g, '').replace(/\[RATIONALE:\{.*?\}\]/g, '').trim();
+      if (content) md += `${speaker}: ${content}\n\n`;
+    });
+  }
+
+  // Chat messages
+  if (data.chatMessages?.length) {
+    md += `## Coaching Chat\n\n`;
+    data.chatMessages.forEach(m => {
+      const speaker = m.role === 'user' ? '**You**' : '**Coach**';
+      const content = (m.content || '').replace(/\[JOURNAL_PROMPT:.*?\]/g, '').trim();
+      if (content) md += `${speaker}: ${content}\n\n`;
+    });
+  }
+
+  // Chat summary
+  if (data.chatSummary) {
+    md += `## Session Summary\n\n${data.chatSummary}\n\n`;
+  }
+
+  // Email
+  if (data.email) {
+    md += `**Email:** ${data.email}\n\n`;
+  }
+
+  md += `---\n*Exported from Healing Spiral on ${now}*\n`;
+  return md;
+}
+
+function downloadLocalExport() {
+  const md = buildLocalExportMarkdown();
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `healing-spiral-export-${new Date().toISOString().split('T')[0]}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscriptionChange, onClearData }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordMsg, setPasswordMsg] = useState(null);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmServerDelete, setConfirmServerDelete] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState(null);
+
+  const showFeedback = (msg, type = "info") => {
+    setActionFeedback({ msg, type });
+    setTimeout(() => setActionFeedback(null), 3000);
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 8) {
+      setPasswordMsg({ text: "Password must be at least 8 characters", type: "error" });
+      return;
+    }
+    setPasswordLoading(true);
+    setPasswordMsg(null);
+    try {
+      const resp = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ currentPassword: currentPassword || undefined, newPassword }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed');
+      setPasswordMsg({ text: "Password updated", type: "success" });
+      setCurrentPassword("");
+      setNewPassword("");
+    } catch (err) {
+      setPasswordMsg({ text: err.message, type: "error" });
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!authToken) { showFeedback("Sign in to export", "error"); return; }
+    try {
+      const resp = await fetch('/api/sessions/export', {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (!resp.ok) throw new Error();
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `healing-spiral-export-${new Date().toISOString().split('T')[0]}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showFeedback("Export downloaded", "success");
+    } catch { showFeedback("Export failed", "error"); }
+  };
+
+  const handleServerDelete = async () => {
+    if (!authToken) return;
+    try {
+      const resp = await fetch('/api/sessions/all', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error();
+      setConfirmServerDelete(false);
+      showFeedback(`Deleted ${data.deleted} session(s)`, "success");
+    } catch { showFeedback("Delete failed", "error"); }
+  };
+
+  if (!open) return null;
+
+  const inputStyle = {
+    width: "100%", padding: "0.5rem 0.75rem", boxSizing: "border-box",
+    background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+    borderRadius: 4, color: "var(--text)", fontSize: "0.85rem", fontFamily: "inherit", outline: "none",
+  };
+  const sectionLabel = {
+    fontSize: "0.65rem", letterSpacing: "0.08em", textTransform: "uppercase",
+    color: "rgba(255,255,255,0.35)", marginBottom: "0.5rem",
+  };
+  const btnStyle = {
+    background: "none", border: "1px solid rgba(255,255,255,0.15)",
+    color: "rgba(255,255,255,0.5)", padding: "0.4rem 0.75rem", borderRadius: 4,
+    fontFamily: "inherit", fontSize: "0.75rem", cursor: "pointer", width: "100%", textAlign: "center",
+    transition: "all 0.2s",
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100,
+      }} />
+      <div style={{
+        position: "fixed", top: 0, right: 0, bottom: 0, width: 340, maxWidth: "90vw",
+        background: "var(--bg)", borderLeft: "1px solid var(--border)", zIndex: 101,
+        display: "flex", flexDirection: "column", overflowY: "auto",
+      }}>
+        <div style={{
+          padding: "1rem 1.25rem", borderBottom: "1px solid var(--border)",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <span style={{ fontSize: "1rem", fontFamily: "'Cormorant Garamond', Georgia, serif", letterSpacing: "0.05em" }}>Settings</span>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", color: "var(--text)", fontSize: "1.2rem", cursor: "pointer",
+          }}>x</button>
+        </div>
+
+        {actionFeedback && (
+          <div style={{
+            fontSize: "0.75rem", padding: "0.4rem 0.75rem", margin: "0.75rem 1.25rem 0", borderRadius: 4, textAlign: "center",
+            background: actionFeedback.type === "error" ? "rgba(200,50,50,0.15)" : "rgba(50,150,50,0.15)",
+            color: actionFeedback.type === "error" ? "#e05050" : "#86efac",
+          }}>{actionFeedback.msg}</div>
+        )}
+
+        <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+
+          {/* Password */}
+          {authToken && (
+            <div>
+              <div style={sectionLabel}>Change Password</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                <input type="password" placeholder="Current password" value={currentPassword}
+                  onChange={e => setCurrentPassword(e.target.value)} style={inputStyle} />
+                <input type="password" placeholder="New password (min 8 chars)" value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)} style={inputStyle} />
+                <button onClick={handleChangePassword} disabled={passwordLoading} style={{
+                  ...btnStyle, opacity: passwordLoading ? 0.5 : 1,
+                }}>
+                  {passwordLoading ? "Updating..." : "Update Password"}
+                </button>
+                {passwordMsg && (
+                  <div style={{
+                    fontSize: "0.75rem", textAlign: "center",
+                    color: passwordMsg.type === "error" ? "#e05050" : "#86efac",
+                  }}>{passwordMsg.text}</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Subscription / Billing */}
+          {authSubscription && (
+            <div>
+              <div style={sectionLabel}>Subscription & Billing</div>
+              <SubscriptionManager authToken={authToken} subscription={authSubscription} onStatusChange={onSubscriptionChange} />
+            </div>
+          )}
+
+          {/* Data Management */}
+          <div>
+            <div style={sectionLabel}>Data Management</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <button onClick={() => { downloadLocalExport(); showFeedback("Export downloaded", "success"); }} style={{
+                ...btnStyle, color: "var(--gold)", borderColor: "rgba(201,162,39,0.25)",
+              }}>⬇ Download My Data (.md)</button>
+              {authToken && <button onClick={handleExport} style={btnStyle}>Export Server Data (.md)</button>}
+              {!confirmClear ? (
+                <button onClick={() => setConfirmClear(true)} style={{
+                  ...btnStyle, color: "rgba(255,255,255,0.3)",
+                }}>Clear Local Data</button>
+              ) : (
+                <div>
+                  {!authToken && (
+                    <div style={{ fontSize: "0.7rem", color: "var(--gold)", marginBottom: "0.4rem", lineHeight: 1.4, textAlign: "center" }}>
+                      💡 Create an account first to keep a backup of your data before clearing.
+                    </div>
+                  )}
+                  <div style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.35)", marginBottom: "0.4rem", textAlign: "center" }}>
+                    A copy of your data will be downloaded automatically.
+                  </div>
+                  <div style={{ display: "flex", gap: "0.3rem" }}>
+                    <button onClick={() => { onClearData?.(); setConfirmClear(false); }} style={{
+                      ...btnStyle, color: "#e05050", borderColor: "rgba(200,50,50,0.35)", flex: 1,
+                    }}>Confirm Clear</button>
+                    <button onClick={() => setConfirmClear(false)} style={{ ...btnStyle, flex: 1 }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {authToken && (
+                !confirmServerDelete ? (
+                  <button onClick={() => setConfirmServerDelete(true)} style={{
+                    ...btnStyle, color: "rgba(200,50,50,0.5)", borderColor: "rgba(200,50,50,0.2)",
+                  }}>Delete Server Data</button>
+                ) : (
+                  <div style={{ display: "flex", gap: "0.3rem" }}>
+                    <button onClick={handleServerDelete} style={{
+                      ...btnStyle, color: "#e05050", borderColor: "rgba(200,50,50,0.35)", flex: 1,
+                      background: "rgba(200,50,50,0.08)",
+                    }}>Confirm Delete</button>
+                    <button onClick={() => setConfirmServerDelete(false)} style={{ ...btnStyle, flex: 1 }}>Cancel</button>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* Profile Link */}
+          <div>
+            <div style={sectionLabel}>Your Profile</div>
+            <a href="https://www.newpowerindustry.com/healingspiral/app" target="_blank" rel="noopener noreferrer" style={{
+              ...btnStyle, display: "block", textDecoration: "none", color: "var(--gold)", borderColor: "rgba(201,162,39,0.2)",
+            }}>
+              View Full Profile on Web
+            </a>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function ClearDataButton({ onClear, authToken }) {
   const [expanded, setExpanded] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -3427,11 +3929,27 @@ function ClearDataButton({ onClear, authToken }) {
               overflowY: "auto", lineHeight: 1.5, whiteSpace: "pre-wrap",
             }}>
               {summaryText}
-              <button onClick={() => setSummaryText(null)} style={{
-                display: "block", marginTop: "0.4rem", background: "none", border: "none",
-                color: "rgba(255,255,255,0.25)", fontSize: "0.6rem", cursor: "pointer",
-                fontFamily: "inherit",
-              }}>dismiss</button>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
+                <button onClick={() => {
+                  const md = `# Healing Spiral — AI Journey Summary\n\n**Generated:** ${new Date().toLocaleString()}\n\n${summaryText}\n\n---\n*Generated by Healing Spiral AI*\n`;
+                  const blob = new Blob([md], { type: 'text/markdown' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `healing-spiral-summary-${new Date().toISOString().split('T')[0]}.md`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }} style={{
+                  background: "none", border: "none",
+                  color: "var(--gold)", fontSize: "0.6rem", cursor: "pointer",
+                  fontFamily: "inherit", opacity: 0.7,
+                }}>⬇ download</button>
+                <button onClick={() => setSummaryText(null)} style={{
+                  background: "none", border: "none",
+                  color: "rgba(255,255,255,0.25)", fontSize: "0.6rem", cursor: "pointer",
+                  fontFamily: "inherit",
+                }}>dismiss</button>
+              </div>
             </div>
           )}
 
@@ -3441,8 +3959,13 @@ function ClearDataButton({ onClear, authToken }) {
             </button>
           ) : (
             <div style={{ textAlign: "center" }}>
+              {!authToken && (
+                <p style={{ fontSize: "0.65rem", color: "var(--gold)", margin: "0.25rem 0 0.4rem", lineHeight: 1.4 }}>
+                  💡 Create an account first to keep a backup of your data before resetting.
+                </p>
+              )}
               <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", margin: "0.25rem 0" }}>
-                Reset your profile? {authToken ? "Your data will be archived on the server." : "This cannot be undone."}
+                Reset your profile? {authToken ? "Your data will be archived on the server." : "A copy will be downloaded automatically."}
               </p>
               <div style={{ display: "flex", gap: "0.4rem", justifyContent: "center" }}>
                 <button onClick={() => { onClear(); setConfirmClear(false); }} style={dangerBtnStyle}>Reset</button>

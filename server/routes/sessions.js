@@ -204,6 +204,19 @@ function formatSessionMarkdown(session, email, index) {
   lines.push(`- **Message Count:** ${session.message_count || 0}`);
   lines.push('');
 
+  // Slider responses (self-assessment intake)
+  const sliderResponses = session.slider_responses_json ? JSON.parse(session.slider_responses_json) : null;
+  if (sliderResponses && Object.keys(sliderResponses).length > 0) {
+    lines.push('### Self-Assessment Responses');
+    for (const dim of DIMENSIONS) {
+      const val = sliderResponses[dim.id];
+      if (val !== undefined) {
+        lines.push(`- **${dim.label}:** ${val}/7`);
+      }
+    }
+    lines.push('');
+  }
+
   // Scores
   const scores = session.scores_json ? JSON.parse(session.scores_json) : null;
   if (scores) {
