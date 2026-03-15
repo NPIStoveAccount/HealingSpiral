@@ -1118,7 +1118,23 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
   return (
     <div style={styles.root}>
       <div style={styles.grain} />
-      
+
+      {/* Floating "Return to Chat" button when user has an active session but navigated away */}
+      {stage !== "chat" && stage !== "landing" && chatMessages.length > 0 && scores && (
+        <button onClick={() => setStage("chat")} style={{
+          position: "fixed", bottom: "1.5rem", right: "1.5rem", zIndex: 100,
+          background: "var(--gold)", color: "#1a1208", border: "none",
+          borderRadius: 24, padding: "0.5rem 1rem", fontSize: "0.8rem",
+          fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 600,
+          cursor: "pointer", letterSpacing: "0.03em",
+          boxShadow: "0 4px 15px rgba(201,162,39,0.3)",
+          transition: "all 0.2s", display: "flex", alignItems: "center", gap: "0.4rem",
+        }}
+        onMouseEnter={e => { e.target.style.transform = "scale(1.05)"; e.target.style.boxShadow = "0 6px 20px rgba(201,162,39,0.4)"; }}
+        onMouseLeave={e => { e.target.style.transform = "scale(1)"; e.target.style.boxShadow = "0 4px 15px rgba(201,162,39,0.3)"; }}
+        >💬 Return to Coaching</button>
+      )}
+
       {stage === "landing" && <Landing onStart={() => { setStage("persona"); trackEvent('assessment_started'); }} onClearData={clearAllData} onAuthLogin={(token, user, loginEmail) => {
         // Auth-based login: save token, restore from server
         saveAuthToken(token);
