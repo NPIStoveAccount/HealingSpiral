@@ -1321,7 +1321,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           onChange={(id, val) => setSliderResponses(r => ({ ...r, [id]: val }))}
           onNext={() => {
             if (currentDimIdx < DIMENSIONS.length - 1) {
-              setCurrentDimIdx(i => i + 1);
+              setCurrentDimIdx(i => Math.min(i + 1, DIMENSIONS.length - 1));
             } else {
               // Check if all responses are uniform (likely defaults)
               // Note: untouched sliders default to 3 but aren't stored in sliderResponses
@@ -2099,7 +2099,8 @@ function ModalityProfile({ selected, otherText, onToggle, onOtherChange, onConti
 // ── QUESTIONNAIRE ──────────────────────────────────────────────────────────
 
 function Questionnaire({ dimIdx, responses, onChange, onNext, onBack }) {
-  const dim = DIMENSIONS[dimIdx];
+  const safeIdx = Math.min(dimIdx, DIMENSIONS.length - 1);
+  const dim = DIMENSIONS[safeIdx];
   const val = responses[dim.id] || 3;
   const touched = responses[dim.id] !== undefined;
   const progress = ((dimIdx + 1) / DIMENSIONS.length) * 100;

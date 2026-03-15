@@ -16,7 +16,7 @@ export default defineConfig({
     target: ['es2020', 'chrome87', 'safari14', 'firefox78', 'edge88'],
     rollupOptions: {
       output: {
-        entryFileNames: 'healing-spiral.js',
+        entryFileNames: 'healing-spiral-[hash].js',
       },
     },
   },
