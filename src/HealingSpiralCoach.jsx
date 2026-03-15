@@ -1582,6 +1582,17 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             setPaymentVerified(false);
             startChat(true);
           }}
+          onRetakeAssessment={() => {
+            setStage("assessment_choice");
+            setScores(null);
+            setScoreRationale(null);
+            setSliderResponses({});
+            setCurrentDimIdx(0);
+            setProbingMessages([]);
+            setProbingDone(false);
+            setSocraticMessages([]);
+            setAssessmentMethod(null);
+          }}
           onClearData={clearAllData}
           authToken={authToken}
           authSubscription={authSubscription}
@@ -2540,7 +2551,7 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0, onBack }) {
 
 // ── COACHING CHAT ──────────────────────────────────────────────────────────
 
-function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange, journalEntries, journalComposing, setJournalComposing, journalMood, setJournalMood, journalDimension, setJournalDimension, journalText, setJournalText, journalPanelOpen, setJournalPanelOpen, journalLoading, onSaveJournal, onRequestReflection, onExportJournal, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, fetchJournalEntries, userModalities, onToggleModality, userModalitiesOther, onModalitiesOtherChange }) {
+function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onRetakeAssessment, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange, journalEntries, journalComposing, setJournalComposing, journalMood, setJournalMood, journalDimension, setJournalDimension, journalText, setJournalText, journalPanelOpen, setJournalPanelOpen, journalLoading, onSaveJournal, onRequestReflection, onExportJournal, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, fetchJournalEntries, userModalities, onToggleModality, userModalitiesOther, onModalitiesOtherChange }) {
   const topMods = getTopModalities(scores, 3);
   const chatInputRef = useRef(null);
   const isMobile = useIsMobile();
@@ -2699,6 +2710,16 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         </button>
       </div>
       <div style={{ padding: "0.4rem 0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        <button onClick={onRetakeAssessment} style={{
+          width: "100%", padding: "0.25rem 0.5rem", borderRadius: 4,
+          background: "none", border: "1px solid rgba(255,255,255,0.1)",
+          color: "rgba(255,255,255,0.45)", fontFamily: "inherit", fontSize: "0.55rem",
+          cursor: "pointer", letterSpacing: "0.03em", transition: "all 0.2s",
+          textTransform: "uppercase",
+        }}
+        onMouseEnter={e => { e.target.style.color = "var(--gold)"; e.target.style.borderColor = "var(--gold)"; }}
+        onMouseLeave={e => { e.target.style.color = "rgba(255,255,255,0.45)"; e.target.style.borderColor = "rgba(255,255,255,0.1)"; }}
+        >↻ Retake Assessment</button>
         <a href="https://www.newpowerindustry.com/healingspiral/app" target="_blank" rel="noopener noreferrer" style={{
           display: "block", color: "var(--gold)", opacity: 0.6,
           fontSize: "0.55rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
