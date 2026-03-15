@@ -291,10 +291,15 @@ function emailHash(email) {
   return "healing_spiral_" + Math.abs(h).toString(36);
 }
 
-let activeSessionKey = SESSION_KEY_ANON;
+let activeSessionKey = (() => {
+  try {
+    return localStorage.getItem("hs_active_session_key") || SESSION_KEY_ANON;
+  } catch { return SESSION_KEY_ANON; }
+})();
 
 function setSessionKey(email) {
   activeSessionKey = email ? emailHash(email.toLowerCase().trim()) : SESSION_KEY_ANON;
+  try { localStorage.setItem("hs_active_session_key", activeSessionKey); } catch {}
 }
 
 function loadSession(key) {
@@ -1074,6 +1079,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     keysToRemove.forEach(k => localStorage.removeItem(k));
     // Reset all state to defaults
     activeSessionKey = SESSION_KEY_ANON;
+    try { localStorage.setItem("hs_active_session_key", SESSION_KEY_ANON); } catch {}
     setStageRaw("landing");
     setPersonaRaw(null);
     setClinicalMode(false);
