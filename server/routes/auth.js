@@ -73,6 +73,37 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// POST /api/auth/change-password
+router.post('/change-password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+
+  try {
+    const user = await dbGet('SELECT id, password_hash FROM users WHERE id = ?', req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.password_hash) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password required' });
+      }
+      const valid = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!valid) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+    }
+
+    const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', hash, user.id);
+    logger.info({ userId: user.id }, 'Password changed');
+    res.json({ success: true });
+  } catch (err) {
+    logger.error({ err }, 'Change password error');
+    res.status(500).json({ error: 'Password change failed' });
+  }
+});
+
 // GET /api/auth/me
 router.get('/me', requireAuth, async (req, res) => {
   const user = await dbGet('SELECT id, email, role, created_at FROM users WHERE id = ?', req.user.id);

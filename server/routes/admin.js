@@ -13,21 +13,40 @@ router.get('/users', async (req, res, next) => {
       SELECT
         u.id, u.email, u.role, u.created_at,
         s.plan_type, s.status AS subscription_status, s.paid_at, s.expires_at,
-        sess.message_count,
+        sess.message_count, sess.assessment_method, sess.persona,
+        sess.updated_at AS last_active,
+        sess.scores_json,
+        sess_counts.session_count,
+        sess_counts.total_messages,
+        COALESCE(j.journal_count, 0) AS journal_count,
         COALESCE(usg.total_input_tokens, 0) AS total_input_tokens,
         COALESCE(usg.total_output_tokens, 0) AS total_output_tokens
       FROM users u
       LEFT JOIN subscriptions s ON s.user_id = u.id
         AND s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)
       LEFT JOIN sessions sess ON sess.user_id = u.id
-        AND sess.id = (SELECT MAX(id) FROM sessions WHERE user_id = u.id)
+        AND sess.id = (SELECT MAX(id) FROM sessions WHERE user_id = u.id AND archived = 0)
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) AS session_count, SUM(message_count) AS total_messages
+        FROM sessions GROUP BY user_id
+      ) sess_counts ON sess_counts.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) AS journal_count
+        FROM journal_entries GROUP BY user_id
+      ) j ON j.user_id = u.id
       LEFT JOIN (
         SELECT user_id, SUM(input_tokens) AS total_input_tokens, SUM(output_tokens) AS total_output_tokens
         FROM usage_log GROUP BY user_id
       ) usg ON usg.user_id = u.id
       ORDER BY u.created_at DESC
     `);
-    res.json({ users });
+    // Parse scores for the response
+    const enriched = users.map(u => ({
+      ...u,
+      scores: u.scores_json ? JSON.parse(u.scores_json) : null,
+      scores_json: undefined,
+    }));
+    res.json({ users: enriched });
   } catch (err) {
     next(err);
   }

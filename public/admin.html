@@ -72,9 +72,17 @@
 
 <script>
 const API = window.location.origin;
-let token = localStorage.getItem('hs_auth_token');
+let token = null;
+try { token = localStorage.getItem('hs_auth_token'); } catch(e) { console.warn('localStorage unavailable:', e); }
 let users = [];
 let editing = {}; // { rowId: { field: value, ... } }
+
+// Global error handler — shows errors visually instead of blank page
+window.onerror = function(msg, src, line, col, err) {
+  const app = document.getElementById('app');
+  if (app) app.innerHTML = '<div style="padding:2rem;color:#e74c3c;font-family:monospace"><h2>Error</h2><pre>' +
+    (msg || 'Unknown error') + '\nLine: ' + line + '</pre></div>';
+};
 
 function showToast(msg, type = 'success') {
   const el = document.createElement('div');
@@ -91,7 +99,7 @@ async function apiFetch(url, opts = {}) {
   });
   if (res.status === 401 || res.status === 403) {
     token = null;
-    localStorage.removeItem('hs_auth_token');
+    try { localStorage.removeItem('hs_auth_token'); } catch(e) {}
     render();
     throw new Error('Not authorized');
   }
@@ -109,7 +117,7 @@ async function login(email, password) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Login failed');
   token = data.token;
-  localStorage.setItem('hs_auth_token', token);
+  try { localStorage.setItem('hs_auth_token', token); } catch(e) {}
   await loadUsers();
 }
 
@@ -281,6 +289,10 @@ function render() {
   const totalInp = users.reduce((s, u) => s + (u.total_input_tokens || 0), 0);
   const totalOut = users.reduce((s, u) => s + (u.total_output_tokens || 0), 0);
   const totalCostVal = (totalInp * 0.80 + totalOut * 4.0) / 1000000;
+  const activeSessions = users.filter(u => u.message_count > 0).length;
+  const totalSessions = users.reduce((s, u) => s + (u.session_count || 0), 0);
+  const totalMsgs = users.reduce((s, u) => s + (u.total_messages || 0), 0);
+  const totalJournals = users.reduce((s, u) => s + (u.journal_count || 0), 0);
 
   app.innerHTML = `
     <div class="header">
@@ -294,6 +306,10 @@ function render() {
         <div class="stat"><div class="stat-val">${totalUsers}</div><div class="stat-label">Total Users</div></div>
         <div class="stat"><div class="stat-val">${paidUsers}</div><div class="stat-label">Active Subscribers</div></div>
         <div class="stat"><div class="stat-val">${admins}</div><div class="stat-label">Admins</div></div>
+        <div class="stat"><div class="stat-val">${activeSessions}</div><div class="stat-label">Active Sessions</div></div>
+        <div class="stat"><div class="stat-val">${totalSessions}</div><div class="stat-label">Total Sessions</div></div>
+        <div class="stat"><div class="stat-val">${totalMsgs}</div><div class="stat-label">Total Messages</div></div>
+        <div class="stat"><div class="stat-val">${totalJournals}</div><div class="stat-label">Journal Entries</div></div>
         <div class="stat"><div class="stat-val">${fmtTokens(totalInp, totalOut)}</div><div class="stat-label">Total Tokens</div></div>
         <div class="stat"><div class="stat-val">$${totalCostVal.toFixed(2)}</div><div class="stat-label">Est. Total Cost</div></div>
       </div>
@@ -301,7 +317,8 @@ function render() {
       <table>
         <thead><tr>
           <th>Email</th><th>Role</th><th>Plan</th><th>Status</th>
-          <th>Paid</th><th>Expires</th><th>Messages</th><th>Tokens</th><th>Est. Cost</th><th>Created</th><th></th>
+          <th>Sessions</th><th>Messages</th><th>Last Active</th><th>Method</th><th>Persona</th><th>Journals</th>
+          <th>Tokens</th><th>Est. Cost</th><th>Paid</th><th>Expires</th><th>Created</th><th></th>
         </tr></thead>
         <tbody>
           ${users.map(u => {
@@ -313,11 +330,16 @@ function render() {
               <td>${editableCell(u.id, 'plan_type', u.plan_type, 'plan-select')}</td>
               <td>${isEditing && 'subscription_status' in editing[u.id] ? editableCell(u.id, 'subscription_status', u.subscription_status, 'status-select') :
                 `<span class="editable" onclick="startEdit(${u.id},'subscription_status','${u.subscription_status||'active'}')">${statusBadge(u.subscription_status)}</span>`}</td>
-              <td>${editableCell(u.id, 'paid_at', u.paid_at, 'date')}</td>
-              <td>${editableCell(u.id, 'expires_at', u.expires_at, 'date')}</td>
-              <td>${u.message_count ?? 0}</td>
+              <td>${u.session_count ?? 0}</td>
+              <td>${u.total_messages ?? 0}</td>
+              <td style="font-size:0.78rem">${fmtDate(u.last_active)}</td>
+              <td style="font-size:0.78rem">${u.assessment_method || '-'}</td>
+              <td style="font-size:0.78rem" title="${u.scores ? Object.entries(u.scores).map(([k,v])=>k+': '+v).join(', ').replace(/"/g,'&quot;') : ''}">${u.persona || '-'}</td>
+              <td>${u.journal_count ?? 0}</td>
               <td>${fmtTokens(u.total_input_tokens, u.total_output_tokens)}</td>
               <td>${fmtCost(u.total_input_tokens, u.total_output_tokens)}</td>
+              <td>${editableCell(u.id, 'paid_at', u.paid_at, 'date')}</td>
+              <td>${editableCell(u.id, 'expires_at', u.expires_at, 'date')}</td>
               <td>${fmtDate(u.created_at)}</td>
               <td><div class="actions">
                 ${isEditing ? `
