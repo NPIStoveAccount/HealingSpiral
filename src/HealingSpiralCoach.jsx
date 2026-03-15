@@ -1622,6 +1622,36 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           authToken={authToken}
           authSubscription={authSubscription}
           onSubscriptionChange={(sub) => setAuthSubscription(sub)}
+          onAuthLogin={(token, user, loginEmail) => {
+            saveAuthToken(token);
+            setAuthUser(user);
+            setEmail(loginEmail);
+            setEmailSubmitted(true);
+            setSessionKey(loginEmail);
+            // Migrate current session to server
+            if (scores) {
+              fetch('/api/sessions/migrate', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  scores, persona: _personaStored?.id, clinicalMode,
+                  chatMessages: chatMessages.slice(-50), chatSummary,
+                  messageCount: userMessageCount, assessmentMethod, sliderResponses,
+                  scoreRationale, userModalities, userModalitiesOther: userModalitiesOther || null,
+                  userContext: userContext || null, probingMessages: probingMessages.slice(-50),
+                  socraticMessages: socraticMessages.slice(-50),
+                }),
+              }).catch(() => {});
+            }
+            // Fetch subscription info
+            fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } })
+              .then(r => r.ok ? r.json() : Promise.reject())
+              .then(data => {
+                setAuthSubscription(data.subscription);
+                if (data.paymentVerified) setPaymentVerified(true);
+              })
+              .catch(() => {});
+          }}
           journalEntries={journalEntries}
           journalComposing={journalComposing}
           setJournalComposing={setJournalComposing}
@@ -2585,7 +2615,7 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0, onBack }) {
 
 // ── COACHING CHAT ──────────────────────────────────────────────────────────
 
-function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onRetakeAssessment, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange, journalEntries, journalComposing, setJournalComposing, journalMood, setJournalMood, journalDimension, setJournalDimension, journalText, setJournalText, journalPanelOpen, setJournalPanelOpen, journalLoading, onSaveJournal, onRequestReflection, onExportJournal, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, fetchJournalEntries, userModalities, onToggleModality, userModalitiesOther, onModalitiesOtherChange }) {
+function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onRetakeAssessment, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange, onAuthLogin, journalEntries, journalComposing, setJournalComposing, journalMood, setJournalMood, journalDimension, setJournalDimension, journalText, setJournalText, journalPanelOpen, setJournalPanelOpen, journalLoading, onSaveJournal, onRequestReflection, onExportJournal, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, fetchJournalEntries, userModalities, onToggleModality, userModalitiesOther, onModalitiesOtherChange }) {
   const topMods = getTopModalities(scores, 3);
   const chatInputRef = useRef(null);
   const isMobile = useIsMobile();
@@ -3019,6 +3049,7 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         authSubscription={authSubscription}
         onSubscriptionChange={onSubscriptionChange}
         onClearData={onClearData}
+        onAuthLogin={onAuthLogin}
       />
     </div>
   );
@@ -3641,7 +3672,7 @@ function downloadLocalExport() {
   URL.revokeObjectURL(url);
 }
 
-function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscriptionChange, onClearData }) {
+function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscriptionChange, onClearData, onAuthLogin }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordMsg, setPasswordMsg] = useState(null);
@@ -3649,6 +3680,11 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmServerDelete, setConfirmServerDelete] = useState(false);
   const [actionFeedback, setActionFeedback] = useState(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authIsRegister, setAuthIsRegister] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
   const showFeedback = (msg, type = "info") => {
     setActionFeedback({ msg, type });
@@ -3759,6 +3795,62 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
         )}
 
         <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+
+          {/* Account / Sign In */}
+          {!authToken && (
+            <div>
+              <div style={sectionLabel}>Account</div>
+              <p style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", margin: "0 0 0.5rem", lineHeight: 1.4 }}>
+                Create an account to back up your data to the server, sync across devices, and unlock premium features.
+              </p>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                if (!authEmail.trim() || !authPassword) return;
+                setAuthLoading(true);
+                setAuthError("");
+                const endpoint = authIsRegister ? '/api/auth/register' : '/api/auth/login';
+                try {
+                  const resp = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
+                  });
+                  const data = await resp.json();
+                  if (!resp.ok) {
+                    setAuthError(data.error || 'Authentication failed');
+                  } else {
+                    onAuthLogin?.(data.token, data.user, authEmail.trim());
+                    showFeedback(authIsRegister ? "Account created!" : "Signed in!", "success");
+                    setAuthEmail("");
+                    setAuthPassword("");
+                  }
+                } catch {
+                  setAuthError('Connection error. Please try again.');
+                }
+                setAuthLoading(false);
+              }} style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                <input type="email" placeholder="Email" value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)} style={inputStyle} />
+                <input type="password" placeholder="Password (min 8 chars)" value={authPassword}
+                  onChange={e => setAuthPassword(e.target.value)} style={inputStyle} />
+                <button type="submit" disabled={authLoading || !authEmail.includes("@") || authPassword.length < 8} style={{
+                  ...btnStyle, opacity: authLoading ? 0.5 : 1,
+                  color: "var(--gold)", borderColor: "rgba(201,162,39,0.3)",
+                }}>
+                  {authLoading ? "..." : authIsRegister ? "Create Account" : "Sign In"}
+                </button>
+                <button type="button" onClick={() => { setAuthIsRegister(!authIsRegister); setAuthError(""); }} style={{
+                  background: "none", border: "none", color: "rgba(255,255,255,0.35)",
+                  fontSize: "0.7rem", cursor: "pointer", fontFamily: "inherit", textAlign: "center",
+                }}>
+                  {authIsRegister ? "Already have an account? Sign in" : "Need an account? Create one"}
+                </button>
+                {authError && (
+                  <div style={{ fontSize: "0.7rem", color: "#e05050", textAlign: "center" }}>{authError}</div>
+                )}
+              </form>
+            </div>
+          )}
 
           {/* Password */}
           {authToken && (
@@ -3964,7 +4056,7 @@ function ClearDataButton({ onClear, authToken }) {
             Your Data
           </div>
 
-          <button onClick={handleExport} style={btnStyle}>
+          <button onClick={() => { downloadLocalExport(); showFeedback("Export downloaded", "success"); }} style={btnStyle}>
             Export context (.md)
           </button>
 
