@@ -185,6 +185,7 @@ function computeScores(responses) {
 }
 
 function getTopModalities(scores, n = 5) {
+  if (!scores) return [];
   const dimScores = scores;
   const ranked = MODALITIES.map(mod => {
     const relevance = mod.dimensions.reduce((sum, d) => sum + (dimScores[d] || 3), 0) / mod.dimensions.length;
@@ -901,7 +902,7 @@ Include all 10 dimensions. Do NOT wrap in markdown code blocks.`;
     }
     setChatLoading(true);
     const topMods = getTopModalities(scores, 3).map(m => m.name).join(", ");
-    const lowestDim = DIMENSIONS.reduce((a, b) => (scores[a.id] || 7) > (scores[b.id] || 7) ? a : b);
+    const lowestDim = scores ? DIMENSIONS.reduce((a, b) => (scores[a.id] || 7) > (scores[b.id] || 7) ? a : b) : DIMENSIONS[0];
 
     const systemPrompt = `${getSystemPrompt(persona, clinicalMode)}
 
@@ -2409,7 +2410,7 @@ function ProfileReview({ scores, rationale, userContext, onContextChange, onGene
 // ── RESULTS ────────────────────────────────────────────────────────────────
 
 function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCoaching, onBack }) {
-  const lowestDims = DIMENSIONS.filter(d => scores[d.id] >= 5);
+  const lowestDims = scores ? DIMENSIONS.filter(d => scores[d.id] >= 5) : [];
 
   return (
     <div style={styles.page}>
@@ -2663,8 +2664,8 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
       </div>
       <div style={styles.sidebarSection}>
         <div style={styles.sidebarLabel}>YOUR PROFILE</div>
-        {DIMENSIONS.map(d => {
-          const tier = scores[d.id];
+        {scores && DIMENSIONS.map(d => {
+          const tier = scores[d.id] || 3;
           const pct = Math.max(8, ((7 - tier) / 6) * 100);
           return (
             <div key={d.id} style={styles.sidebarDimRow}>
