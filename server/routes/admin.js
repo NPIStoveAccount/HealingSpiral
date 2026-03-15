@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import bcrypt from 'bcrypt';
 import { requireAdmin } from '../middleware/auth.js';
 import { dbAll, dbGet, dbRun } from '../db.js';
 
@@ -77,6 +78,27 @@ router.put('/users/:id', async (req, res, next) => {
         );
       }
     }
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/admin/users/:id/password — reset user password
+router.put('/users/:id/password', async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const user = await dbGet('SELECT id, email FROM users WHERE id = ?', userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const { password } = req.body;
+    if (!password || password.length < 4) {
+      return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', hash, userId);
 
     res.json({ ok: true });
   } catch (err) {

@@ -114,6 +114,8 @@ function buildUserContextNote(userContext) {
 
 const TIER_LABELS = ["", "Exemplary", "Strong", "Moderate", "Developing", "Emerging", "Minimal", "Harmful"];
 
+const BOOKING_URL = "https://www.eliwhipple.com/coaching";
+
 // ── CLAUDE API CALL ────────────────────────────────────────────────────────
 
 const MOCK_RESPONSES = [
@@ -454,11 +456,16 @@ export default function HealingSpiralApp() {
           scores, persona: persona?.id, clinicalMode,
           chatMessages: chatMessages.slice(-50), // Keep last 50 messages
           chatSummary, messageCount: userMessageCount,
+          assessmentMethod, sliderResponses, scoreRationale,
+          userModalities, userModalitiesOther: userModalitiesOther || null,
+          userContext: userContext || null,
+          probingMessages: probingMessages.slice(-50),
+          socraticMessages: socraticMessages.slice(-50),
         }),
       }).catch(() => {});
     }, 5000);
     return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current); };
-  }, [authToken, scores, chatMessages, userMessageCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authToken, scores, chatMessages, userMessageCount, assessmentMethod, sliderResponses, scoreRationale, userModalities, probingMessages, socraticMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const FREE_MESSAGE_LIMIT = 20;
   const SUMMARIZE_THRESHOLD = 24;
@@ -936,6 +943,31 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
   };
 
   const clearAllData = useCallback(() => {
+    // Archive current session server-side before clearing (for authenticated users)
+    if (authToken) {
+      // First, do a final sync to make sure all data is saved
+      if (scores) {
+        fetch('/api/sessions/current', {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify({
+            scores, persona: persona?.id, clinicalMode,
+            chatMessages: chatMessages.slice(-50),
+            chatSummary, messageCount: userMessageCount,
+            assessmentMethod, sliderResponses, scoreRationale,
+            userModalities, userModalitiesOther: userModalitiesOther || null,
+            userContext: userContext || null,
+            probingMessages: probingMessages.slice(-50),
+            socraticMessages: socraticMessages.slice(-50),
+          }),
+        })
+          .then(() => fetch('/api/sessions/archive', {
+            method: 'POST',
+            headers: authHeaders(),
+          }))
+          .catch(() => {});
+      }
+    }
     // Remove all healing spiral keys from localStorage
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -968,7 +1000,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     setAssessmentMethod(null);
     setScoreRationale(null);
     setUserContext("");
-  }, []);
+  }, [authToken, authHeaders, scores, persona, clinicalMode, chatMessages, chatSummary, userMessageCount, assessmentMethod, sliderResponses, scoreRationale, userModalities, userModalitiesOther, userContext, probingMessages, socraticMessages]);
 
   // ── RENDER ──────────────────────────────────────────────────────────────
 
@@ -992,7 +1024,16 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
               if (data.session.persona) setPersonaRaw(PERSONAS.find(p => p.id === data.session.persona) || null);
               if (data.session.clinicalMode !== undefined) setClinicalMode(data.session.clinicalMode);
               if (data.session.chatMessages?.length > 0) setChatMessages(data.session.chatMessages);
+              if (data.session.chatSummary) setChatSummary(data.session.chatSummary);
               if (data.session.messageCount) setUserMessageCount(data.session.messageCount);
+              if (data.session.assessmentMethod) setAssessmentMethod(data.session.assessmentMethod);
+              if (data.session.sliderResponses) setSliderResponses(data.session.sliderResponses);
+              if (data.session.scoreRationale) setScoreRationale(data.session.scoreRationale);
+              if (data.session.userModalities?.length > 0) setUserModalities(data.session.userModalities);
+              if (data.session.userModalitiesOther) setUserModalitiesOther(data.session.userModalitiesOther);
+              if (data.session.userContext) setUserContext(data.session.userContext);
+              if (data.session.probingMessages?.length > 0) setProbingMessages(data.session.probingMessages);
+              if (data.session.socraticMessages?.length > 0) setSocraticMessages(data.session.socraticMessages);
               setProbingDone(true);
               setStage("returning");
             } else {
@@ -1006,7 +1047,14 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
                 // Migrate localStorage to server
                 fetch('/api/sessions/migrate', {
                   method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ scores: existing.scores, persona: existing.persona?.id, clinicalMode: existing.clinicalMode, chatMessages: existing.chatMessages, chatSummary: existing.chatSummary, messageCount: existing.userMessageCount || 0 }),
+                  body: JSON.stringify({
+                    scores: existing.scores, persona: existing.persona?.id, clinicalMode: existing.clinicalMode,
+                    chatMessages: existing.chatMessages, chatSummary: existing.chatSummary, messageCount: existing.userMessageCount || 0,
+                    assessmentMethod: existing.assessmentMethod, sliderResponses: existing.sliderResponses,
+                    scoreRationale: existing.scoreRationale, userModalities: existing.userModalities,
+                    userModalitiesOther: existing.userModalitiesOther, userContext: existing.userContext,
+                    probingMessages: existing.probingMessages, socraticMessages: existing.socraticMessages,
+                  }),
                 }).catch(() => {});
                 setStage("returning");
               } else {
@@ -1480,9 +1528,15 @@ function Landing({ onStart, onLogin, onAuthLogin, onClearData }) {
     setAuthLoading(false);
   };
   return (
-    <div style={{ ...styles.page, opacity: visible ? 1 : 0, transition: "opacity 1.2s ease" }}>
+    <div style={{
+      ...styles.page, opacity: visible ? 1 : 0, transition: "opacity 1.2s ease",
+    }}>
       <div style={styles.landingInner}>
-        <div style={styles.spiralGlyph}>◎</div>
+        <img src="/landing-bg.png" alt="Healing Spiral" style={{
+          width: "120px", height: "120px", borderRadius: "50%", objectFit: "cover",
+          marginBottom: "1rem",
+          boxShadow: "0 0 30px rgba(212,175,55,0.3)",
+        }} />
         <h1 style={styles.landingTitle}>The Healing Spiral</h1>
         <p style={styles.landingSubtitle}>An integrative map of ten dimensions of personal evolution.</p>
         <p style={styles.landingBody}>
@@ -1500,6 +1554,13 @@ function Landing({ onStart, onLogin, onAuthLogin, onClearData }) {
           Begin Your Assessment →
         </button>
         <p style={styles.landingMeta}>Free assessment · AI coaching · 10 minutes</p>
+        <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
+          color: "var(--gold)", opacity: 0.5, fontSize: "0.85rem",
+          fontFamily: "'Cormorant Garamond', Georgia, serif",
+          marginTop: "0.5rem", textDecoration: "none", letterSpacing: "0.03em",
+        }}>
+          Or book a live session with Eli
+        </a>
         {!showLogin ? (
           <button onClick={() => setShowLogin(true)} style={{
             background: "none", border: "none", color: "var(--gold)",
@@ -2148,6 +2209,13 @@ function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCo
           >
             Download PDF Preview
           </button>
+          <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
+            display: "block", marginTop: "1.5rem", color: "var(--gold)", opacity: 0.6,
+            fontSize: "0.85rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+            textDecoration: "none", letterSpacing: "0.03em",
+          }}>
+            Want to go deeper? Book a live coaching session with Eli
+          </a>
         </div>
       </div>
     </div>
@@ -2216,6 +2284,13 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0 }) {
           <button style={{ ...styles.primaryBtn, width: "100%", marginTop: "1.5rem" }} onClick={onUnlock}>
             Enter the Coaching Session →
           </button>
+          <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
+            display: "block", marginTop: "1rem", color: "var(--gold)", opacity: 0.5,
+            fontSize: "0.8rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+            textDecoration: "none", textAlign: "center", letterSpacing: "0.03em",
+          }}>
+            Or book a live session with Eli
+          </a>
         </div>
       </div>
     </div>
@@ -2296,11 +2371,21 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
           <div key={m.name} style={styles.sidebarMod}>{m.name}</div>
         ))}
       </div>
+      <div style={{ padding: "0.75rem", borderTop: "1px solid var(--border)" }}>
+        <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
+          display: "block", color: "var(--gold)", opacity: 0.45,
+          fontSize: "0.65rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+          textDecoration: "none", textAlign: "center", letterSpacing: "0.05em",
+          textTransform: "uppercase",
+        }}>
+          Book a live session with Eli
+        </a>
+      </div>
       {authSubscription && (
         <SubscriptionManager authToken={authToken} subscription={authSubscription} onStatusChange={onSubscriptionChange} />
       )}
       {onClearData && (
-        <ClearDataButton onClear={onClearData} />
+        <ClearDataButton onClear={onClearData} authToken={authToken} />
       )}
     </>
   );
@@ -2436,6 +2521,13 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
                 $20 lifetime
               </button>
             </div>
+            <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
+              display: "block", marginTop: "1rem", color: "var(--gold)", opacity: 0.5,
+              fontSize: "0.8rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+              textDecoration: "none", textAlign: "center", letterSpacing: "0.03em",
+            }}>
+              Or book a live coaching session with Eli
+            </a>
           </div>
         ) : (
           <div style={styles.chatInputRow}>
@@ -2574,39 +2666,183 @@ function SubscriptionManager({ authToken, subscription, onStatusChange }) {
   );
 }
 
-function ClearDataButton({ onClear }) {
-  const [confirm, setConfirm] = useState(false);
+function ClearDataButton({ onClear, authToken }) {
+  const [expanded, setExpanded] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmServerDelete, setConfirmServerDelete] = useState(false);
+  const [summaryText, setSummaryText] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState(null);
+
+  const showFeedback = (msg, type = "info") => {
+    setActionFeedback({ msg, type });
+    setTimeout(() => setActionFeedback(null), 3000);
+  };
+
+  const handleExport = async () => {
+    if (!authToken) {
+      showFeedback("Sign in to export your data", "error");
+      return;
+    }
+    try {
+      const resp = await fetch('/api/sessions/export', {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (!resp.ok) throw new Error('Export failed');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `healing-spiral-export-${new Date().toISOString().split('T')[0]}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showFeedback("Export downloaded", "success");
+    } catch {
+      showFeedback("Export failed", "error");
+    }
+  };
+
+  const handleSummarize = async () => {
+    if (!authToken) {
+      showFeedback("Sign in to get a summary", "error");
+      return;
+    }
+    setSummaryLoading(true);
+    setSummaryText(null);
+    try {
+      const resp = await fetch('/api/sessions/summarize', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed');
+      setSummaryText(data.summary);
+    } catch {
+      showFeedback("Summary failed", "error");
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const handleServerDelete = async () => {
+    if (!authToken) return;
+    try {
+      const resp = await fetch('/api/sessions/all', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error('Delete failed');
+      setConfirmServerDelete(false);
+      showFeedback(`Deleted ${data.deleted} session(s) from server`, "success");
+    } catch {
+      showFeedback("Server delete failed", "error");
+    }
+  };
+
+  const btnStyle = {
+    background: "none", border: "1px solid rgba(255,255,255,0.1)",
+    color: "rgba(255,255,255,0.4)", padding: "0.3rem 0.6rem", borderRadius: 4,
+    fontFamily: "inherit", fontSize: "0.65rem", cursor: "pointer",
+    letterSpacing: "0.03em", transition: "all 0.2s", width: "100%", textAlign: "center",
+  };
+  const dangerBtnStyle = {
+    ...btnStyle, color: "#e05050", borderColor: "rgba(200,50,50,0.35)",
+    background: "rgba(200,50,50,0.08)",
+  };
+
   return (
-    <div style={{ marginTop: "auto", padding: "1rem 0.75rem", borderTop: "1px solid var(--border)" }}>
-      {!confirm ? (
-        <button onClick={() => setConfirm(true)} style={{
+    <div style={{ marginTop: "auto", padding: "0.75rem", borderTop: "1px solid var(--border)" }}>
+      {actionFeedback && (
+        <div style={{
+          fontSize: "0.65rem", padding: "0.3rem 0.5rem", marginBottom: "0.5rem", borderRadius: 4, textAlign: "center",
+          background: actionFeedback.type === "error" ? "rgba(200,50,50,0.15)" : "rgba(50,150,50,0.15)",
+          color: actionFeedback.type === "error" ? "#e05050" : "#86efac",
+        }}>{actionFeedback.msg}</div>
+      )}
+
+      {!expanded ? (
+        <button onClick={() => setExpanded(true)} style={{
           background: "none", border: "none", color: "rgba(255,255,255,0.2)",
           fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.7rem",
           cursor: "pointer", letterSpacing: "0.05em", width: "100%", textAlign: "center",
         }}>
-          Clear all saved data
+          Manage your data
         </button>
       ) : (
-        <div style={{ textAlign: "center" }}>
-          <p style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", marginBottom: "0.5rem" }}>
-            Erase profile, scores, and chat history?
-          </p>
-          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
-            <button onClick={() => { onClear(); setConfirm(false); }} style={{
-              background: "rgba(200,50,50,0.12)", border: "1px solid rgba(200,50,50,0.35)",
-              color: "#e05050", padding: "0.25rem 0.7rem", borderRadius: 4,
-              fontFamily: "inherit", fontSize: "0.7rem", cursor: "pointer",
-            }}>
-              Clear
-            </button>
-            <button onClick={() => setConfirm(false)} style={{
-              background: "none", border: "1px solid rgba(255,255,255,0.12)",
-              color: "rgba(255,255,255,0.35)", padding: "0.25rem 0.7rem", borderRadius: 4,
-              fontFamily: "inherit", fontSize: "0.7rem", cursor: "pointer",
-            }}>
-              Cancel
-            </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.1em", textAlign: "center", marginBottom: "0.15rem" }}>
+            Your Data
           </div>
+
+          <button onClick={handleExport} style={btnStyle}>
+            Export context (.md)
+          </button>
+
+          <button onClick={handleSummarize} disabled={summaryLoading} style={{
+            ...btnStyle, opacity: summaryLoading ? 0.5 : 1,
+          }}>
+            {summaryLoading ? "Generating..." : "AI journey summary"}
+          </button>
+
+          {summaryText && (
+            <div style={{
+              fontSize: "0.7rem", color: "rgba(255,255,255,0.6)", padding: "0.6rem",
+              background: "rgba(255,255,255,0.03)", borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.08)", maxHeight: "12rem",
+              overflowY: "auto", lineHeight: 1.5, whiteSpace: "pre-wrap",
+            }}>
+              {summaryText}
+              <button onClick={() => setSummaryText(null)} style={{
+                display: "block", marginTop: "0.4rem", background: "none", border: "none",
+                color: "rgba(255,255,255,0.25)", fontSize: "0.6rem", cursor: "pointer",
+                fontFamily: "inherit",
+              }}>dismiss</button>
+            </div>
+          )}
+
+          {!confirmClear ? (
+            <button onClick={() => setConfirmClear(true)} style={dangerBtnStyle}>
+              Reset & start fresh
+            </button>
+          ) : (
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", margin: "0.25rem 0" }}>
+                Reset your profile? {authToken ? "Your data will be archived on the server." : "This cannot be undone."}
+              </p>
+              <div style={{ display: "flex", gap: "0.4rem", justifyContent: "center" }}>
+                <button onClick={() => { onClear(); setConfirmClear(false); }} style={dangerBtnStyle}>Reset</button>
+                <button onClick={() => setConfirmClear(false)} style={btnStyle}>Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {authToken && (
+            !confirmServerDelete ? (
+              <button onClick={() => setConfirmServerDelete(true)} style={{
+                ...dangerBtnStyle, marginTop: "0.25rem",
+              }}>
+                Delete all data from server
+              </button>
+            ) : (
+              <div style={{ textAlign: "center" }}>
+                <p style={{ fontSize: "0.65rem", color: "#e05050", margin: "0.25rem 0" }}>
+                  Permanently delete ALL sessions from the server? This cannot be undone.
+                </p>
+                <div style={{ display: "flex", gap: "0.4rem", justifyContent: "center" }}>
+                  <button onClick={handleServerDelete} style={dangerBtnStyle}>Delete permanently</button>
+                  <button onClick={() => setConfirmServerDelete(false)} style={btnStyle}>Cancel</button>
+                </div>
+              </div>
+            )
+          )}
+
+          <button onClick={() => { setExpanded(false); setSummaryText(null); setConfirmClear(false); setConfirmServerDelete(false); }} style={{
+            ...btnStyle, border: "none", color: "rgba(255,255,255,0.2)", fontSize: "0.6rem",
+            marginTop: "0.15rem",
+          }}>
+            close
+          </button>
         </div>
       )}
     </div>

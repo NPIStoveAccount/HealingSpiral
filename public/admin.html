@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <title>Admin - Healing Spiral</title>
 <style>
   :root { --bg: #1a1814; --surface: #242018; --border: #3a3428; --text: #e8e0d4; --gold: #c9a227; --red: #e74c3c; --green: #27ae60; }
@@ -144,6 +147,18 @@ async function saveUser(userId) {
     await apiFetch(`/api/admin/users/${userId}`, { method: 'PUT', body: JSON.stringify(changes) });
     showToast('User updated');
     await loadUsers();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function resetPassword(userId, email) {
+  const password = prompt(`Set new password for "${email}":`);
+  if (!password) return;
+  if (password.length < 4) { showToast('Password must be at least 4 characters', 'error'); return; }
+  try {
+    await apiFetch(`/api/admin/users/${userId}/password`, { method: 'PUT', body: JSON.stringify({ password }) });
+    showToast(`Password updated for ${email}`);
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -309,6 +324,7 @@ function render() {
                   <button class="btn btn-save" onclick="saveUser(${u.id})">Save</button>
                   <button class="btn btn-refresh" onclick="cancelEdit(${u.id})">Cancel</button>
                 ` : ''}
+                <button class="btn btn-refresh" onclick="resetPassword(${u.id},'${u.email}')">Password</button>
                 <button class="btn btn-delete" onclick="deleteUser(${u.id},'${u.email}')">Delete</button>
               </div></td>
             </tr>`;
