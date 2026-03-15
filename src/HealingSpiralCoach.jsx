@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, forwardRef } from "react";
 import { jsPDF } from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
@@ -381,6 +381,15 @@ export default function HealingSpiralApp() {
   const [assessmentMethod, setAssessmentMethod] = usePersisted("assessmentMethod", null);
   const [scoreRationale, setScoreRationale] = usePersisted("scoreRationale", null);
   const [userContext, setUserContext] = usePersisted("userContext", "");
+  const [journalEntries, setJournalEntries] = useState([]);
+  const [journalComposing, setJournalComposing] = useState(false);
+  const [journalMood, setJournalMood] = useState(null);
+  const [journalDimension, setJournalDimension] = useState(null);
+  const [journalText, setJournalText] = useState("");
+  const [journalPanelOpen, setJournalPanelOpen] = useState(false);
+  const [journalLoading, setJournalLoading] = useState(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState({ google: false, dropbox: false });
+  const [syncingService, setSyncingService] = useState(null);
   const chatBottomRef = useRef(null);
   const probingBottomRef = useRef(null);
   const socraticBottomRef = useRef(null);
@@ -417,6 +426,90 @@ export default function HealingSpiralApp() {
       })
       .catch(() => { saveAuthToken(null); setAuthUser(null); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch journal entries when authenticated
+  const fetchJournalEntries = useCallback(() => {
+    if (!authToken) return;
+    fetch('/api/journal', { headers: { 'Authorization': `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setJournalEntries(data.entries || []))
+      .catch(() => {});
+  }, [authToken]);
+
+  useEffect(() => { fetchJournalEntries(); }, [fetchJournalEntries]);
+
+  // Fetch cloud sync status
+  useEffect(() => {
+    if (!authToken) return;
+    fetch('/api/cloud-sync/status', { headers: { 'Authorization': `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setCloudSyncStatus(data))
+      .catch(() => {});
+  }, [authToken]);
+
+  // Listen for OAuth popup messages
+  useEffect(() => {
+    const handleMessage = (e) => {
+      if (e.data === 'google-drive-connected' || e.data === 'dropbox-connected') {
+        fetch('/api/cloud-sync/status', { headers: { 'Authorization': `Bearer ${authToken}` } })
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(data => setCloudSyncStatus(data))
+          .catch(() => {});
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [authToken]);
+
+  const saveJournalEntry = useCallback(async (content, { prompt, dimension, mood, source } = {}) => {
+    if (!authToken || !content?.trim()) return null;
+    try {
+      const resp = await fetch('/api/journal', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content.trim(), prompt, dimension, mood, source: source || 'chat' }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (data.entry) setJournalEntries(prev => [data.entry, ...prev]);
+      return data.entry;
+    } catch { return null; }
+  }, [authToken]);
+
+  const requestReflection = useCallback(async (entryId) => {
+    if (!authToken) return null;
+    try {
+      const resp = await fetch(`/api/journal/${entryId}/reflect`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+      });
+      const data = await resp.json();
+      if (data.requiresSubscription) return { error: 'subscription_required' };
+      if (data.reflection) {
+        setJournalEntries(prev => prev.map(e => e.id === entryId ? { ...e, aiReflection: data.reflection } : e));
+        return { reflection: data.reflection };
+      }
+      return null;
+    } catch { return null; }
+  }, [authToken]);
+
+  const syncToCloud = useCallback(async (service) => {
+    if (!authToken) return;
+    setSyncingService(service);
+    try {
+      const resp = await fetch(`/api/cloud-sync/${service}/sync`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error);
+      return { success: true, entries: data.entries };
+    } catch (err) {
+      return { error: err.message };
+    } finally {
+      setSyncingService(null);
+    }
+  }, [authToken]);
 
   // Analytics helper (fire-and-forget)
   const trackEvent = useCallback((event_type, metadata = {}) => {
@@ -870,6 +963,20 @@ ${previousChatContext}` : ""}
 
 IMPORTANT: Follow the person's lead. If they want to explore the Healing Spiral framework or understand their dimensions, teach and explain — don't redirect into exercises. If they want to work with emotions or body sensations, go there. If they want to explore patterns or what's stuck, do that. Match the mode they're asking for.
 
+JOURNALING: Occasionally (every 5-8 exchanges, when it feels natural), invite the person to journal. When you want to suggest a journal prompt, include this exact marker format in your message:
+
+[JOURNAL_PROMPT: Your prompt text here]
+
+For example: "This feels like an important realization. [JOURNAL_PROMPT: What are you noticing right now about the pattern you just described? Write freely — let whatever wants to come through, come through.]"
+
+Use journal prompts when:
+- The person has had an insight or emotional shift
+- They're processing something that would benefit from reflective writing
+- A theme has emerged that deserves deeper personal exploration
+- The conversation reaches a natural pause point
+
+Don't overuse them — they should feel like an organic invitation, not a homework assignment.
+
 THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
 - The Relational Field is the ground — safe attuned connection that makes all other healing possible
 - Six dimensions form a reciprocal cascade: Capacity Building → Physiological Completion → Affect Metabolization → Differentiation → Implicit Model Updating → Identity Reorganization
@@ -1128,28 +1235,42 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             <div style={styles.spiralGlyph}>◎</div>
             <h2 style={styles.sectionTitle}>How Would You Like to Be Assessed?</h2>
             <p style={styles.sectionSub}>Choose the approach that feels right for you.</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem", maxWidth: 520, width: "100%" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem", maxWidth: 560, width: "100%" }}>
               <button
                 onClick={() => { setAssessmentMethod("questionnaire"); setStage("modality_profile"); }}
                 style={{
                   ...styles.personaCard,
-                  textAlign: "center", fontFamily: "inherit", color: "var(--text)", cursor: "pointer",
+                  textAlign: "left", fontFamily: "inherit", color: "var(--text)", cursor: "pointer",
+                  padding: "1.25rem",
                 }}
               >
                 <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📊</div>
                 <div style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.4rem" }}>Self-Assessment</div>
-                <div style={{ fontSize: "0.85rem", opacity: 0.6, fontStyle: "italic" }}>Rate yourself across 10 dimensions (quick, 3-5 minutes)</div>
+                <div style={{ fontSize: "0.85rem", opacity: 0.6, fontStyle: "italic", marginBottom: "0.6rem" }}>Quick and reflective — 3 to 5 minutes</div>
+                <ul style={{ fontSize: "0.78rem", opacity: 0.5, margin: 0, paddingLeft: "1.1rem", lineHeight: 1.7 }}>
+                  <li>Rate yourself on 10 healing dimensions</li>
+                  <li>Slider-based — intuitive and fast</li>
+                  <li>Followed by 2 deepening questions from the coach</li>
+                  <li>Good if you already have some self-awareness</li>
+                </ul>
               </button>
               <button
                 onClick={() => { setAssessmentMethod("socratic"); setStage("modality_profile"); }}
                 style={{
                   ...styles.personaCard,
-                  textAlign: "center", fontFamily: "inherit", color: "var(--text)", cursor: "pointer",
+                  textAlign: "left", fontFamily: "inherit", color: "var(--text)", cursor: "pointer",
+                  padding: "1.25rem",
                 }}
               >
                 <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>💬</div>
                 <div style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.4rem" }}>Guided Conversation</div>
-                <div style={{ fontSize: "0.85rem", opacity: 0.6, fontStyle: "italic" }}>Let the coach assess you through questions (deeper, 5-10 minutes)</div>
+                <div style={{ fontSize: "0.85rem", opacity: 0.6, fontStyle: "italic", marginBottom: "0.6rem" }}>Deeper and more exploratory — 5 to 10 minutes</div>
+                <ul style={{ fontSize: "0.78rem", opacity: 0.5, margin: 0, paddingLeft: "1.1rem", lineHeight: 1.7 }}>
+                  <li>The coach asks questions and listens</li>
+                  <li>Your profile emerges from the conversation</li>
+                  <li>No self-rating required — the AI reads between the lines</li>
+                  <li>Best if you prefer dialogue over forms</li>
+                </ul>
               </button>
             </div>
           </div>
@@ -1453,6 +1574,64 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
           authToken={authToken}
           authSubscription={authSubscription}
           onSubscriptionChange={(sub) => setAuthSubscription(sub)}
+          journalEntries={journalEntries}
+          journalComposing={journalComposing}
+          setJournalComposing={setJournalComposing}
+          journalMood={journalMood}
+          setJournalMood={setJournalMood}
+          journalDimension={journalDimension}
+          setJournalDimension={setJournalDimension}
+          journalText={journalText}
+          setJournalText={setJournalText}
+          journalPanelOpen={journalPanelOpen}
+          setJournalPanelOpen={setJournalPanelOpen}
+          journalLoading={journalLoading}
+          onSaveJournal={async (content, opts) => {
+            setJournalLoading(true);
+            const entry = await saveJournalEntry(content, opts);
+            setJournalLoading(false);
+            return entry;
+          }}
+          onRequestReflection={requestReflection}
+          onExportJournal={async () => {
+            if (!authToken) return;
+            try {
+              const resp = await fetch('/api/journal/export', {
+                headers: { 'Authorization': `Bearer ${authToken}` },
+              });
+              if (!resp.ok) throw new Error();
+              const blob = await resp.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `healing-spiral-journal-${new Date().toISOString().split('T')[0]}.md`;
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch { /* handled in UI */ }
+          }}
+          cloudSyncStatus={cloudSyncStatus}
+          syncingService={syncingService}
+          onSyncToCloud={syncToCloud}
+          onConnectCloud={async (service) => {
+            if (!authToken) return;
+            try {
+              const resp = await fetch(`/api/cloud-sync/${service}/auth`, {
+                headers: { 'Authorization': `Bearer ${authToken}` },
+              });
+              const data = await resp.json();
+              if (data.url) window.open(data.url, '_blank', 'width=600,height=700');
+              else if (data.error) return { error: data.error };
+            } catch { return { error: 'Connection failed' }; }
+          }}
+          onDisconnectCloud={async (service) => {
+            if (!authToken) return;
+            await fetch(`/api/cloud-sync/${service}/disconnect`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${authToken}` },
+            });
+            setCloudSyncStatus(prev => ({ ...prev, [service]: false }));
+          }}
+          fetchJournalEntries={fetchJournalEntries}
         />
       )}
 
@@ -1883,8 +2062,8 @@ function ProbingChat({ messages, input, loading, streaming, done, bottomRef, onI
   const inputRef = useRef(null);
   const handleSend = () => { onSend(); setTimeout(() => inputRef.current?.focus(), 50); };
   return (
-    <div style={styles.page}>
-      <div style={styles.chatOuter}>
+    <div style={{ ...styles.page, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...styles.chatOuter, height: "100dvh" }}>
         <div style={styles.chatHeader}>
           <div style={styles.spiralGlyphSmall}>◎</div>
           <span style={styles.chatHeaderTitle}>Intake Deepening</span>
@@ -1934,14 +2113,13 @@ function ProbingChat({ messages, input, loading, streaming, done, bottomRef, onI
               <WorkingIndicator label="Preparing your profile…" />
             )}
             <div style={styles.chatInputRow}>
-              <input
+              <AutoTextarea
                 ref={inputRef}
-                style={styles.chatInput}
                 value={input}
                 onChange={e => onInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 maxLength={2000}
-                placeholder="Share what's true for you… (Enter to send)"
+                placeholder="Share what's true for you… (Enter to send, Shift+Enter for new line)"
                 disabled={loading}
                 autoFocus
               />
@@ -1972,8 +2150,8 @@ function SocraticAssessment({ messages, input, loading, streaming, bottomRef, on
   const inputRef = useRef(null);
   const handleSend = () => { onSend(); setTimeout(() => inputRef.current?.focus(), 50); };
   return (
-    <div style={styles.page}>
-      <div style={styles.chatOuter}>
+    <div style={{ ...styles.page, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...styles.chatOuter, height: "100dvh" }}>
         <div style={styles.chatHeader}>
           <button
             onClick={onBack}
@@ -2024,14 +2202,13 @@ function SocraticAssessment({ messages, input, loading, streaming, bottomRef, on
           <div ref={bottomRef} />
         </div>
         <div style={styles.chatInputRow}>
-          <input
+          <AutoTextarea
             ref={inputRef}
-            style={styles.chatInput}
             value={input}
             onChange={e => onInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             maxLength={2000}
-            placeholder="Share what's true for you... (Enter to send)"
+            placeholder="Share what's true for you... (Enter to send, Shift+Enter for new line)"
             disabled={loading}
             autoFocus
           />
@@ -2299,7 +2476,7 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0 }) {
 
 // ── COACHING CHAT ──────────────────────────────────────────────────────────
 
-function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange }) {
+function CoachingChat({ persona, messages, input, loading, streaming, bottomRef, scores, onInput, onSend, onSendDirect, onPersonaChange, clinicalMode, onToggleClinical, onRestart, onClearData, isMessageCapReached, userMessageCount, freeMessageLimit, paymentVerified, onInitiateCheckout, authToken, authSubscription, onSubscriptionChange, journalEntries, journalComposing, setJournalComposing, journalMood, setJournalMood, journalDimension, setJournalDimension, journalText, setJournalText, journalPanelOpen, setJournalPanelOpen, journalLoading, onSaveJournal, onRequestReflection, onExportJournal, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, fetchJournalEntries }) {
   const topMods = getTopModalities(scores, 3);
   const chatInputRef = useRef(null);
   const isMobile = useIsMobile();
@@ -2370,6 +2547,28 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         {topMods.map(m => (
           <div key={m.name} style={styles.sidebarMod}>{m.name}</div>
         ))}
+      </div>
+      <div style={{ ...styles.sidebarSection, borderBottom: "1px solid var(--border)" }}>
+        <div style={styles.sidebarLabel}>JOURNAL</div>
+        <div style={{ fontSize: "0.7rem", opacity: 0.5, marginBottom: "0.3rem" }}>
+          {journalEntries.length} entr{journalEntries.length === 1 ? 'y' : 'ies'}
+        </div>
+        {journalEntries.length > 0 && (
+          <div style={{
+            fontSize: "0.7rem", opacity: 0.4, padding: "0.3rem 0.4rem",
+            background: "rgba(255,255,255,0.02)", borderRadius: 4, marginBottom: "0.3rem",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {journalEntries[0]?.mood ? journalEntries[0].mood + ' ' : ''}{journalEntries[0]?.content?.slice(0, 60)}...
+          </div>
+        )}
+        <button onClick={() => setJournalPanelOpen(true)} style={{
+          background: "none", border: "1px solid rgba(201,162,39,0.15)", color: "var(--gold)",
+          padding: "0.25rem 0.5rem", borderRadius: 4, fontFamily: "inherit", fontSize: "0.6rem",
+          cursor: "pointer", width: "100%", textAlign: "center", opacity: 0.7,
+        }}>
+          View all entries
+        </button>
       </div>
       <div style={{ padding: "0.75rem", borderTop: "1px solid var(--border)" }}>
         <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
@@ -2453,17 +2652,34 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
           {messages.map((m, i) => {
             const isLastAssistant = i === messages.length - 1 && m.role === "assistant" && !loading;
             let displayContent = m.content;
+
+            // Extract journal prompt if present
+            const journalPromptMatch = m.role === "assistant" && displayContent.match(/\[JOURNAL_PROMPT:\s*(.+?)\]/);
+            if (journalPromptMatch) {
+              displayContent = displayContent.replace(/\[JOURNAL_PROMPT:\s*.+?\]/, '').trim();
+            }
+
             if (isLastAssistant) {
-              const opts = parseNumberedOptions(m.content);
+              const opts = parseNumberedOptions(displayContent);
               if (opts) {
-                const lines = m.content.split("\n");
+                const lines = displayContent.split("\n");
                 const firstOptIdx = lines.findIndex(l => /^\d+\.\s+\*{0,2}.+\*{0,2}\s*[—–-]/.test(l));
                 if (firstOptIdx > 0) {
                   displayContent = lines.slice(0, firstOptIdx).join("\n").trim();
                 }
               }
             }
-            return <ChatBubble key={i} role={m.role} content={displayContent} />;
+            return (
+              <div key={i}>
+                <ChatBubble role={m.role} content={displayContent} />
+                {journalPromptMatch && authToken && (
+                  <JournalPromptCard
+                    promptText={journalPromptMatch[1]}
+                    onRespond={(text, prompt) => onSaveJournal(text, { prompt, source: 'chat' })}
+                  />
+                )}
+              </div>
+            );
           })}
           {messages.length > 0 && loading && !streaming && <TypingIndicator />}
           {streaming && <ChatBubble role="assistant" content={streaming} streaming />}
@@ -2529,23 +2745,72 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
               Or book a live coaching session with Eli
             </a>
           </div>
+        ) : journalComposing ? (
+          <JournalCompose
+            text={journalText}
+            setText={setJournalText}
+            mood={journalMood}
+            setMood={setJournalMood}
+            dimension={journalDimension}
+            setDimension={setJournalDimension}
+            loading={journalLoading}
+            onSave={async () => {
+              if (!journalText.trim()) return;
+              const entry = await onSaveJournal(journalText, { mood: journalMood, dimension: journalDimension, source: 'direct' });
+              if (entry) {
+                setJournalText("");
+                setJournalMood(null);
+                setJournalDimension(null);
+                setJournalComposing(false);
+                setTimeout(() => chatInputRef.current?.focus(), 50);
+              }
+            }}
+            onCancel={() => { setJournalComposing(false); setJournalText(""); setJournalMood(null); setJournalDimension(null); setTimeout(() => chatInputRef.current?.focus(), 50); }}
+          />
         ) : (
           <div style={styles.chatInputRow}>
-            <input
+            <button
+              onClick={() => setJournalComposing(true)}
+              title="Write a journal entry"
+              style={{
+                background: "transparent", border: "1px solid var(--border)", borderRadius: 4,
+                width: 44, height: 44, fontSize: "1.1rem", cursor: "pointer", color: "var(--gold)",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                opacity: 0.6, transition: "opacity 0.2s",
+              }}
+              onMouseEnter={e => e.target.style.opacity = 1}
+              onMouseLeave={e => e.target.style.opacity = 0.6}
+            >
+              ✎
+            </button>
+            <AutoTextarea
               ref={chatInputRef}
-              style={styles.chatInput}
               value={input}
               onChange={e => onInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder="What's on your mind… (Enter to send)"
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder="What's on your mind… (Enter to send, Shift+Enter for new line)"
               disabled={loading}
-              maxLength={2000}
+              maxLength={4000}
               autoFocus
             />
             <button style={styles.sendBtn} onClick={() => handleSend()} disabled={loading || !input.trim()}>→</button>
           </div>
         )}
       </div>
+
+      <JournalPanel
+        entries={journalEntries}
+        open={journalPanelOpen}
+        onClose={() => setJournalPanelOpen(false)}
+        onExport={onExportJournal}
+        onRequestReflection={onRequestReflection}
+        cloudSyncStatus={cloudSyncStatus}
+        syncingService={syncingService}
+        onSyncToCloud={onSyncToCloud}
+        onConnectCloud={onConnectCloud}
+        onDisconnectCloud={onDisconnectCloud}
+        authToken={authToken}
+      />
     </div>
   );
 }
@@ -2600,6 +2865,375 @@ function WorkingIndicator({ label = "Working on it…" }) {
       <span style={{ fontSize: "0.8rem", opacity: 0.5, fontStyle: "italic", letterSpacing: "0.03em" }}>
         {label}
       </span>
+    </div>
+  );
+}
+
+// ── AUTO-EXPANDING TEXTAREA ───────────────────────────────────────────────
+
+const AutoTextarea = forwardRef(function AutoTextarea({ value, onChange, onKeyDown, placeholder, disabled, maxLength, autoFocus, style: extraStyle }, ref) {
+  const internalRef = useRef(null);
+  const textareaRef = ref || internalRef;
+
+  const resize = useCallback(() => {
+    const el = typeof textareaRef === 'function' ? null : textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  }, [textareaRef]);
+
+  useEffect(() => { resize(); }, [value, resize]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      style={{ ...styles.chatInput, resize: "none", overflow: "hidden", minHeight: 44, maxHeight: 200, ...extraStyle }}
+      value={value}
+      onChange={e => { onChange(e); }}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      disabled={disabled}
+      maxLength={maxLength}
+      autoFocus={autoFocus}
+      rows={1}
+    />
+  );
+});
+
+// ── JOURNAL MOOD SELECTOR ─────────────────────────────────────────────────
+
+const MOODS = [
+  { emoji: "\u{1F60A}", label: "Good" },
+  { emoji: "\u{1F614}", label: "Sad" },
+  { emoji: "\u{1F620}", label: "Frustrated" },
+  { emoji: "\u{1F914}", label: "Reflective" },
+  { emoji: "\u{1F4AA}", label: "Empowered" },
+  { emoji: "\u{1F64F}", label: "Grateful" },
+];
+
+// ── JOURNAL COMPOSE ───────────────────────────────────────────────────────
+
+function JournalCompose({ text, setText, mood, setMood, dimension, setDimension, loading, onSave, onCancel }) {
+  const textRef = useRef(null);
+
+  useEffect(() => {
+    if (textRef.current) {
+      textRef.current.style.height = 'auto';
+      textRef.current.style.height = Math.min(textRef.current.scrollHeight, 300) + 'px';
+    }
+  }, [text]);
+
+  return (
+    <div style={{
+      borderTop: "1px solid var(--border)", padding: "1rem 1.5rem",
+      background: "rgba(201,162,39,0.03)", flexShrink: 0,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <span style={{ fontSize: "0.75rem", opacity: 0.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Journal Entry</span>
+        <button onClick={onCancel} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: "1rem" }}>×</button>
+      </div>
+
+      <textarea
+        ref={textRef}
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="Write freely — let whatever wants to come through, come through..."
+        style={{
+          ...styles.chatInput, width: "100%", resize: "none", minHeight: 80, maxHeight: 300,
+          overflow: "hidden", marginBottom: "0.5rem",
+        }}
+        autoFocus
+      />
+
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "0.25rem" }}>
+          {MOODS.map(m => (
+            <button key={m.emoji} onClick={() => setMood(mood === m.emoji ? null : m.emoji)}
+              title={m.label}
+              style={{
+                background: mood === m.emoji ? "rgba(201,162,39,0.2)" : "transparent",
+                border: mood === m.emoji ? "1px solid var(--gold)" : "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 4, width: 30, height: 30, fontSize: "0.85rem", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+              {m.emoji}
+            </button>
+          ))}
+        </div>
+
+        <select
+          value={dimension || ""}
+          onChange={e => setDimension(e.target.value || null)}
+          style={{
+            background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+            borderRadius: 4, color: "var(--text)", fontFamily: "inherit", fontSize: "0.7rem",
+            padding: "0.25rem 0.4rem", opacity: 0.7, cursor: "pointer",
+          }}
+        >
+          <option value="">dimension (optional)</option>
+          {DIMENSIONS.map(d => <option key={d.id} value={d.label}>{d.emoji} {d.label}</option>)}
+        </select>
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: "0.4rem" }}>
+          <button onClick={onSave} disabled={loading || !text.trim()} style={{
+            ...styles.sendBtn, width: "auto", padding: "0.4rem 1rem",
+            fontSize: "0.8rem", opacity: loading || !text.trim() ? 0.4 : 1,
+          }}>
+            {loading ? "..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── JOURNAL CARD (in-chat) ────────────────────────────────────────────────
+
+function JournalPromptCard({ promptText, onRespond }) {
+  const [text, setText] = useState("");
+  const [saved, setSaved] = useState(false);
+  const textRef = useRef(null);
+
+  useEffect(() => {
+    if (textRef.current) {
+      textRef.current.style.height = 'auto';
+      textRef.current.style.height = Math.min(textRef.current.scrollHeight, 200) + 'px';
+    }
+  }, [text]);
+
+  if (saved) {
+    return (
+      <div style={{
+        margin: "0.5rem 0", padding: "0.75rem 1rem", borderRadius: 12,
+        background: "rgba(201,162,39,0.08)", border: "1px solid rgba(201,162,39,0.2)",
+        fontSize: "0.85rem", opacity: 0.7,
+      }}>
+        <span style={{ fontSize: "0.7rem", opacity: 0.5, letterSpacing: "0.05em" }}>JOURNAL ENTRY SAVED</span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      margin: "0.5rem 0", padding: "1rem", borderRadius: 12,
+      background: "rgba(201,162,39,0.06)", border: "1px solid rgba(201,162,39,0.15)",
+    }}>
+      <div style={{ fontSize: "0.7rem", opacity: 0.5, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "0.4rem" }}>
+        Journal Prompt
+      </div>
+      <p style={{ fontSize: "0.9rem", marginBottom: "0.6rem", fontStyle: "italic", opacity: 0.85 }}>
+        {promptText}
+      </p>
+      <textarea
+        ref={textRef}
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="Write here..."
+        style={{
+          ...styles.chatInput, width: "100%", resize: "none", minHeight: 60, maxHeight: 200,
+          overflow: "hidden", marginBottom: "0.4rem", background: "rgba(255,255,255,0.04)",
+        }}
+      />
+      <button
+        onClick={() => { if (text.trim()) { onRespond(text, promptText); setSaved(true); } }}
+        disabled={!text.trim()}
+        style={{
+          ...styles.sendBtn, width: "auto", padding: "0.3rem 0.8rem",
+          fontSize: "0.75rem", opacity: !text.trim() ? 0.4 : 1,
+        }}
+      >
+        Save entry
+      </button>
+    </div>
+  );
+}
+
+// ── JOURNAL PANEL (sidebar overlay) ───────────────────────────────────────
+
+function JournalPanel({ entries, open, onClose, onExport, onRequestReflection, cloudSyncStatus, syncingService, onSyncToCloud, onConnectCloud, onDisconnectCloud, authToken }) {
+  const [expandedId, setExpandedId] = useState(null);
+  const [reflectingId, setReflectingId] = useState(null);
+  const [syncFeedback, setSyncFeedback] = useState(null);
+
+  if (!open) return null;
+
+  const showFeedback = (msg) => { setSyncFeedback(msg); setTimeout(() => setSyncFeedback(null), 3000); };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 60, display: "flex", justifyContent: "flex-end",
+    }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+      <div style={{
+        position: "relative", width: 380, maxWidth: "90vw", background: "var(--bg, #0e0c0a)",
+        borderLeft: "1px solid var(--border)", overflowY: "auto", zIndex: 61,
+        display: "flex", flexDirection: "column",
+      }}>
+        <div style={{
+          padding: "1rem", borderBottom: "1px solid var(--border)",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <span style={{ fontSize: "0.85rem", letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.6 }}>
+            Journal ({entries.length})
+          </span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text)", fontSize: "1.2rem", cursor: "pointer" }}>×</button>
+        </div>
+
+        {syncFeedback && (
+          <div style={{ fontSize: "0.7rem", padding: "0.4rem 1rem", background: "rgba(50,150,50,0.15)", color: "#86efac", textAlign: "center" }}>
+            {syncFeedback}
+          </div>
+        )}
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "0.5rem" }}>
+          {entries.length === 0 ? (
+            <div style={{ padding: "2rem 1rem", textAlign: "center", opacity: 0.4, fontSize: "0.85rem" }}>
+              No journal entries yet. Use the pencil button in chat to start writing.
+            </div>
+          ) : entries.map(e => {
+            const isExpanded = expandedId === e.id;
+            const date = e.createdAt ? new Date(e.createdAt + 'Z').toLocaleDateString('en-US', {
+              month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+            }) : '';
+            return (
+              <div key={e.id} onClick={() => setExpandedId(isExpanded ? null : e.id)} style={{
+                padding: "0.75rem", margin: "0.25rem 0", borderRadius: 8, cursor: "pointer",
+                background: isExpanded ? "rgba(201,162,39,0.06)" : "rgba(255,255,255,0.02)",
+                border: isExpanded ? "1px solid rgba(201,162,39,0.15)" : "1px solid transparent",
+                transition: "all 0.15s",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.25rem" }}>
+                  {e.mood && <span style={{ fontSize: "0.85rem" }}>{e.mood}</span>}
+                  <span style={{ fontSize: "0.65rem", opacity: 0.4 }}>{date}</span>
+                  {e.dimension && <span style={{ fontSize: "0.6rem", opacity: 0.35, marginLeft: "auto" }}>{e.dimension}</span>}
+                </div>
+                <div style={{
+                  fontSize: "0.8rem", lineHeight: 1.5, opacity: 0.75,
+                  ...(isExpanded ? { whiteSpace: "pre-wrap" } : {
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }),
+                }}>
+                  {e.content}
+                </div>
+                {isExpanded && e.prompt && (
+                  <div style={{ fontSize: "0.7rem", opacity: 0.4, fontStyle: "italic", marginTop: "0.4rem" }}>
+                    Prompt: {e.prompt}
+                  </div>
+                )}
+                {isExpanded && e.aiReflection && (
+                  <div style={{
+                    fontSize: "0.75rem", marginTop: "0.5rem", padding: "0.5rem",
+                    background: "rgba(201,162,39,0.05)", borderRadius: 6, lineHeight: 1.5,
+                    border: "1px solid rgba(201,162,39,0.1)",
+                  }}>
+                    <span style={{ fontSize: "0.6rem", opacity: 0.4, letterSpacing: "0.05em" }}>REFLECTION</span>
+                    <div style={{ marginTop: "0.2rem", whiteSpace: "pre-wrap" }}>{e.aiReflection}</div>
+                  </div>
+                )}
+                {isExpanded && !e.aiReflection && (
+                  <button
+                    onClick={async (ev) => {
+                      ev.stopPropagation();
+                      setReflectingId(e.id);
+                      const result = await onRequestReflection(e.id);
+                      setReflectingId(null);
+                      if (result?.error === 'subscription_required') {
+                        showFeedback("Subscription required for AI reflections");
+                      }
+                    }}
+                    disabled={reflectingId === e.id}
+                    style={{
+                      marginTop: "0.4rem", background: "none", border: "1px solid rgba(201,162,39,0.2)",
+                      color: "var(--gold)", padding: "0.2rem 0.6rem", borderRadius: 4,
+                      fontSize: "0.65rem", cursor: "pointer", fontFamily: "inherit",
+                      opacity: reflectingId === e.id ? 0.4 : 0.7,
+                    }}
+                  >
+                    {reflectingId === e.id ? "Reflecting..." : "Get AI reflection"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Sync & Export controls */}
+        <div style={{ padding: "0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+          <div style={{ fontSize: "0.6rem", opacity: 0.3, letterSpacing: "0.1em", textTransform: "uppercase", textAlign: "center" }}>
+            Sync & Backup
+          </div>
+
+          <button onClick={onExport} style={{
+            background: "none", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)",
+            padding: "0.3rem 0.6rem", borderRadius: 4, fontFamily: "inherit", fontSize: "0.65rem",
+            cursor: "pointer", width: "100%", textAlign: "center",
+          }}>
+            Download journal (.md)
+          </button>
+
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            {cloudSyncStatus.google ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                <button onClick={async () => {
+                  const r = await onSyncToCloud('google');
+                  if (r?.success) showFeedback(`Synced ${r.entries} entries to Google Drive`);
+                  else showFeedback(r?.error || 'Sync failed');
+                }}
+                disabled={syncingService === 'google'}
+                style={{
+                  background: "rgba(66,133,244,0.1)", border: "1px solid rgba(66,133,244,0.3)",
+                  color: "#8ab4f8", padding: "0.3rem", borderRadius: 4, fontFamily: "inherit",
+                  fontSize: "0.6rem", cursor: "pointer", opacity: syncingService === 'google' ? 0.4 : 1,
+                }}>
+                  {syncingService === 'google' ? 'Syncing...' : 'Sync Google Drive'}
+                </button>
+                <button onClick={() => onDisconnectCloud('google')} style={{
+                  background: "none", border: "none", color: "rgba(255,255,255,0.2)",
+                  fontSize: "0.55rem", cursor: "pointer", fontFamily: "inherit",
+                }}>disconnect</button>
+              </div>
+            ) : (
+              <button onClick={() => onConnectCloud('google')} style={{
+                flex: 1, background: "none", border: "1px solid rgba(66,133,244,0.3)",
+                color: "rgba(66,133,244,0.7)", padding: "0.3rem", borderRadius: 4,
+                fontFamily: "inherit", fontSize: "0.6rem", cursor: "pointer",
+              }}>
+                Connect Google Drive
+              </button>
+            )}
+
+            {cloudSyncStatus.dropbox ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                <button onClick={async () => {
+                  const r = await onSyncToCloud('dropbox');
+                  if (r?.success) showFeedback(`Synced ${r.entries} entries to Dropbox`);
+                  else showFeedback(r?.error || 'Sync failed');
+                }}
+                disabled={syncingService === 'dropbox'}
+                style={{
+                  background: "rgba(0,97,255,0.1)", border: "1px solid rgba(0,97,255,0.3)",
+                  color: "#6ea8fe", padding: "0.3rem", borderRadius: 4, fontFamily: "inherit",
+                  fontSize: "0.6rem", cursor: "pointer", opacity: syncingService === 'dropbox' ? 0.4 : 1,
+                }}>
+                  {syncingService === 'dropbox' ? 'Syncing...' : 'Sync Dropbox'}
+                </button>
+                <button onClick={() => onDisconnectCloud('dropbox')} style={{
+                  background: "none", border: "none", color: "rgba(255,255,255,0.2)",
+                  fontSize: "0.55rem", cursor: "pointer", fontFamily: "inherit",
+                }}>disconnect</button>
+              </div>
+            ) : (
+              <button onClick={() => onConnectCloud('dropbox')} style={{
+                flex: 1, background: "none", border: "1px solid rgba(0,97,255,0.3)",
+                color: "rgba(0,97,255,0.7)", padding: "0.3rem", borderRadius: 4,
+                fontFamily: "inherit", fontSize: "0.6rem", cursor: "pointer",
+              }}>
+                Connect Dropbox
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3130,7 +3764,7 @@ const styles = {
   },
   chatInputRow: {
     padding: "1rem 1.5rem", borderTop: "1px solid var(--border)",
-    display: "flex", gap: "0.75rem", alignItems: "center", flexShrink: 0,
+    display: "flex", gap: "0.75rem", alignItems: "flex-end", flexShrink: 0,
   },
   chatInput: {
     flex: 1, background: "rgba(255,255,255,0.06)",

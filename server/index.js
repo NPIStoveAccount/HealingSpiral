@@ -15,6 +15,8 @@ import subscriptionRouter from './routes/subscription.js';
 import sessionsRouter from './routes/sessions.js';
 import analyticsRouter from './routes/analytics.js';
 import adminRouter from './routes/admin.js';
+import journalRouter from './routes/journal.js';
+import cloudSyncRouter from './routes/cloud-sync.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,6 +38,8 @@ app.use('/api/subscription', subscriptionRouter);
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/journal', journalRouter);
+app.use('/api/cloud-sync', cloudSyncRouter);
 
 // Admin dashboard page
 app.get('/admin', (req, res) => {
