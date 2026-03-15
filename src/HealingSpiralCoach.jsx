@@ -371,6 +371,7 @@ export default function HealingSpiralApp() {
   const [email, setEmail] = usePersisted("email", "");
   const [emailSubmitted, setEmailSubmitted] = usePersisted("emailSubmitted", false);
   const [chatMessages, setChatMessages] = usePersisted("chatMessages", []);
+  const [chatTranscript, setChatTranscript] = usePersisted("chatTranscript", []);
   const [chatSummary, setChatSummary] = usePersisted("chatSummary", "");
   const [previousChatContext, setPreviousChatContext] = usePersisted("previousChatContext", null);
   const [chatInput, setChatInput] = useState("");
@@ -957,7 +958,9 @@ Personalize each option using what they shared in the intake. Keep the tone warm
       aiText = "⚠️ Could not connect: " + e.message;
     }
     setStreamingText("");
-    setChatMessages([{ role: "assistant", content: aiText }]);
+    const openingMsg = { role: "assistant", content: aiText };
+    setChatMessages([openingMsg]);
+    setChatTranscript([openingMsg]);
     setChatLoading(false);
   }, [persona, scores, probingMessages, clinicalMode, chatMessages.length, previousChatContext, userModalities, userModalitiesOther, userContext]);
 
@@ -1003,6 +1006,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
       latestMsgs = [...prev, userMsg];
       return latestMsgs;
     });
+    setChatTranscript(prev => [...prev, userMsg]);
     setChatInput("");
     setChatLoading(true);
     const topMods = getTopModalities(scores, 3).map(m => m.name).join(", ");
@@ -1017,10 +1021,14 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
       try {
         const aiText = await callClaude(msgs.map(m => ({ role: m.role, content: m.content })), systemPrompt, (p) => setStreamingText(p));
         setStreamingText("");
-        setChatMessages([...msgs, { role: "assistant", content: aiText }]);
+        const aiMsg = { role: "assistant", content: aiText };
+        setChatMessages([...msgs, aiMsg]);
+        setChatTranscript(prev => [...prev, aiMsg]);
       } catch (e) {
         setStreamingText("");
-        setChatMessages([...msgs, { role: "assistant", content: `⚠️ Connection error: ${e.message}. Please try again.` }]);
+        const errMsg = { role: "assistant", content: `⚠️ Connection error: ${e.message}. Please try again.` };
+        setChatMessages([...msgs, errMsg]);
+        setChatTranscript(prev => [...prev, errMsg]);
       }
       setChatLoading(false);
     }, 0);
@@ -1033,6 +1041,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     const userMsg = { role: "user", content: inputVal };
     let newMsgs = [...chatMessages, userMsg];
     setChatMessages(newMsgs);
+    setChatTranscript(prev => [...prev, userMsg]);
     setChatInput("");
     setChatLoading(true);
 
@@ -1050,12 +1059,16 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     } catch (e) {
       setStreamingText("");
       setApiError(e.message);
-      setChatMessages([...newMsgs, { role: "assistant", content: "⚠️ " + e.message }]);
+      const errMsg = { role: "assistant", content: "⚠️ " + e.message };
+      setChatMessages([...newMsgs, errMsg]);
+      setChatTranscript(prev => [...prev, errMsg]);
       setChatLoading(false);
       return;
     }
     setStreamingText("");
-    setChatMessages([...newMsgs, { role: "assistant", content: aiText }]);
+    const aiMsg = { role: "assistant", content: aiText };
+    setChatMessages([...newMsgs, aiMsg]);
+    setChatTranscript(prev => [...prev, aiMsg]);
     setChatLoading(false);
   };
 
@@ -1109,6 +1122,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
     setEmail("");
     setEmailSubmitted(false);
     setChatMessages([]);
+    setChatTranscript([]);
     setChatSummary("");
     setPreviousChatContext(null);
     setUserMessageCount(0);
@@ -1233,6 +1247,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
               setStage("chat");
             } else {
               setChatMessages([]);
+              setChatTranscript([]);
               setUserMessageCount(0);
               setPaymentVerified(false);
               setStage("paywall");
@@ -1246,6 +1261,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             setProbingDone(false);
             setScores(null);
             setChatMessages([]);
+            setChatTranscript([]);
             setUserMessageCount(0);
             setPaymentVerified(false);
             setStage("persona");
@@ -3637,10 +3653,11 @@ function buildLocalExportMarkdown() {
     });
   }
 
-  // Chat messages
-  if (data.chatMessages?.length) {
+  // Chat messages — use full transcript if available, fall back to chatMessages
+  const chatExport = data.chatTranscript?.length ? data.chatTranscript : data.chatMessages;
+  if (chatExport?.length) {
     md += `## Coaching Chat\n\n`;
-    data.chatMessages.forEach(m => {
+    chatExport.forEach(m => {
       const speaker = m.role === 'user' ? '**You**' : '**Coach**';
       const content = (m.content || '').replace(/\[JOURNAL_PROMPT:.*?\]/g, '').trim();
       if (content) md += `${speaker}: ${content}\n\n`;
