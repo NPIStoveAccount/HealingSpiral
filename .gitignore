@@ -42,3 +42,4 @@ Healing-Spiral-Coach_ClaudeAPIKey.rtf
 *.njsproj
 *.sln
 *.sw?
+.claude/settings.local.json

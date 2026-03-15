@@ -2,7 +2,11 @@ import { useState, useEffect, useRef, useCallback, useMemo, forwardRef } from "r
 import { jsPDF } from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
+import { marked } from "marked";
 import { MODS, MOD_CATEGORIES } from "./modalities.js";
+
+// Configure marked for safe inline rendering
+marked.setOptions({ breaks: true, gfm: true });
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
@@ -1803,18 +1807,24 @@ function Landing({ onStart, onLogin, onAuthLogin, onClearData }) {
           Begin Your Assessment →
         </button>
         <p style={styles.landingMeta}>Free assessment · AI coaching · 10 minutes</p>
-        <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
-          color: "var(--gold)", opacity: 0.5, fontSize: "0.85rem",
-          fontFamily: "'Cormorant Garamond', Georgia, serif",
-          marginTop: "0.5rem", textDecoration: "none", letterSpacing: "0.03em",
+        <div style={{
+          marginTop: "1.5rem", padding: "0.8rem 1.25rem", textAlign: "center",
+          background: "rgba(201,162,39,0.06)", border: "1px solid rgba(201,162,39,0.2)",
+          borderRadius: 10, maxWidth: 380, width: "100%",
         }}>
-          Or book a live session with Eli
-        </a>
+          <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
+            color: "var(--gold)", fontSize: "0.9rem",
+            fontFamily: "'Cormorant Garamond', Georgia, serif",
+            textDecoration: "none", letterSpacing: "0.03em",
+          }}>
+            Or book a live session with Eli →
+          </a>
+        </div>
         {!showLogin ? (
           <button onClick={() => setShowLogin(true)} style={{
             background: "none", border: "none", color: "var(--gold)",
             fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.9rem",
-            cursor: "pointer", marginTop: "1.5rem", opacity: 0.7,
+            cursor: "pointer", marginTop: "1.25rem", opacity: 0.7,
             textDecoration: "underline", textUnderlineOffset: "3px",
           }}>
             Already have a profile? Sign in
@@ -2501,13 +2511,22 @@ function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCo
           >
             Download PDF Preview
           </button>
-          <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
-            display: "block", marginTop: "1.5rem", color: "var(--gold)", opacity: 0.6,
-            fontSize: "0.85rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
-            textDecoration: "none", letterSpacing: "0.03em",
+          <div style={{
+            marginTop: "1.5rem", padding: "0.8rem 1.25rem", textAlign: "center",
+            background: "rgba(201,162,39,0.06)", border: "1px solid rgba(201,162,39,0.2)",
+            borderRadius: 10, width: "100%",
           }}>
-            Want to go deeper? Book a live coaching session with Eli
-          </a>
+            <p style={{ fontSize: "0.85rem", opacity: 0.7, marginBottom: "0.4rem" }}>Want to go deeper with a real human?</p>
+            <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
+              display: "inline-block", padding: "0.5rem 1.25rem", borderRadius: 6,
+              background: "transparent", border: "1px solid var(--gold)",
+              color: "var(--gold)", fontSize: "0.9rem",
+              fontFamily: "'Cormorant Garamond', Georgia, serif",
+              textDecoration: "none", letterSpacing: "0.03em",
+            }}>
+              Book a Live Session with Eli →
+            </a>
+          </div>
         </div>
       </div>
     </div>
@@ -2577,22 +2596,35 @@ function Paywall({ onUnlock, reportSent, messagesUsed = 0, onBack }) {
         <div style={styles.pricingCard}>
           <div style={styles.pricingBadge}>FREE TO START</div>
           <div style={styles.pricingPrice}>{messagesUsed > 0 ? (20 - messagesUsed) : 20}<span style={styles.pricingPer}> free messages{messagesUsed > 0 ? " remaining" : ""}</span></div>
-          <p style={styles.pricingDesc}>Try the coaching experience free. Unlock unlimited access when you're ready.</p>
+          <p style={styles.pricingDesc}>Try the coaching experience free. Unlock unlimited access for $100.</p>
           <ul style={styles.featureList}>
             <li>✦ Full 10-dimension context</li>
             <li>✦ Modality recommendations woven in</li>
             <li>✦ Your chosen coach persona</li>
             <li>✦ 20 free messages to start</li>
+            <li>✦ Unlimited access — $100</li>
           </ul>
           <button style={{ ...styles.primaryBtn, width: "100%", marginTop: "1.5rem" }} onClick={onUnlock}>
             Enter the Coaching Session →
           </button>
+        </div>
+        <div style={{
+          marginTop: "1.5rem", padding: "1rem 1.25rem", textAlign: "center",
+          background: "rgba(201,162,39,0.06)", border: "1px solid rgba(201,162,39,0.2)",
+          borderRadius: 10, maxWidth: 420, width: "100%",
+        }}>
+          <p style={{ fontSize: "0.95rem", opacity: 0.8, marginBottom: "0.5rem", lineHeight: 1.5 }}>
+            Want to go deeper with a real human?
+          </p>
           <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
-            display: "block", marginTop: "1rem", color: "var(--gold)", opacity: 0.5,
-            fontSize: "0.8rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
-            textDecoration: "none", textAlign: "center", letterSpacing: "0.03em",
+            display: "inline-block", padding: "0.6rem 1.5rem", borderRadius: 6,
+            background: "transparent", border: "1px solid var(--gold)",
+            color: "var(--gold)", fontSize: "0.95rem",
+            fontFamily: "'Cormorant Garamond', Georgia, serif",
+            textDecoration: "none", letterSpacing: "0.03em",
+            transition: "all 0.2s",
           }}>
-            Or book a live session with Eli
+            Book a Live Session with Eli →
           </a>
         </div>
       </div>
@@ -2780,12 +2812,14 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
           View Full Profile →
         </a>
         <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
-          display: "block", color: "var(--gold)", opacity: 0.45,
+          display: "block", padding: "0.3rem 0.5rem", borderRadius: 4,
+          background: "rgba(201,162,39,0.06)", border: "1px solid rgba(201,162,39,0.15)",
+          color: "var(--gold)", opacity: 0.8,
           fontSize: "0.55rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
           textDecoration: "none", textAlign: "center", letterSpacing: "0.05em",
-          textTransform: "uppercase",
+          textTransform: "uppercase", transition: "all 0.2s",
         }}>
-          Book a session with Eli
+          Book a Live Session with Eli →
         </a>
         <button onClick={() => downloadLocalExport({ journalEntries })} style={{
           width: "100%", padding: "0.25rem 0.5rem", borderRadius: 4,
@@ -3005,7 +3039,7 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
               value={input}
               onChange={e => onInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="What's on your mind… (Enter to send, Shift+Enter for new line)"
+              placeholder={isMobile ? "What's on your mind…" : "What's on your mind… (Enter to send, Shift+Enter for new line)"}
               disabled={loading}
               maxLength={4000}
               autoFocus
@@ -4208,13 +4242,8 @@ function parseNumberedOptions(text) {
 
 function renderMarkdown(text) {
   if (!text) return null;
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={i}>{part.slice(2, -2)}</strong>;
-    }
-    return <span key={i}>{part}</span>;
-  });
+  const html = marked.parse(text);
+  return <span className="md-content" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function ChatBubble({ role, content, streaming }) {
@@ -4280,7 +4309,7 @@ const styles = {
   },
   page: {
     flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-    justifyContent: "center", padding: "2rem 1rem", position: "relative", zIndex: 1,
+    justifyContent: "flex-start", padding: "clamp(2rem, 8vh, 6rem) 1rem 2rem", position: "relative", zIndex: 1,
     minHeight: "100vh",
   },
   landingInner: {
@@ -4528,6 +4557,15 @@ if (typeof document !== "undefined") {
     input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--gold, #c9a227); cursor: pointer; }
     button:hover { filter: brightness(1.1); }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .md-content p { margin: 0 0 0.5em 0; }
+    .md-content p:last-child { margin-bottom: 0; }
+    .md-content ul, .md-content ol { margin: 0.4em 0; padding-left: 1.3em; }
+    .md-content li { margin-bottom: 0.2em; }
+    .md-content h1, .md-content h2, .md-content h3 { margin: 0.6em 0 0.3em 0; font-weight: 600; }
+    .md-content h3 { font-size: 1em; }
+    .md-content code { background: rgba(255,255,255,0.08); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.85em; }
+    .md-content blockquote { border-left: 2px solid var(--gold, #c9a227); padding-left: 0.75em; margin: 0.4em 0; opacity: 0.8; }
+    .md-content em { font-style: italic; }
   `;
   document.head.appendChild(style);
 }

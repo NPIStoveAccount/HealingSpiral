@@ -17,6 +17,7 @@ import analyticsRouter from './routes/analytics.js';
 import adminRouter from './routes/admin.js';
 import journalRouter from './routes/journal.js';
 import cloudSyncRouter from './routes/cloud-sync.js';
+import profileRouter from './routes/profile.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,7 @@ app.use('/api/analytics', analyticsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/journal', journalRouter);
 app.use('/api/cloud-sync', cloudSyncRouter);
+app.use('/api/profile', profileRouter);
 
 // Admin dashboard page
 app.get('/admin', (req, res) => {
@@ -52,7 +54,10 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '..', 'dist')));
   app.get('{*path}', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    const host = req.hostname || '';
+    const isExplorer = host.startsWith('healingspiral');
+    const htmlFile = isExplorer ? 'explorer.html' : 'index.html';
+    res.sendFile(path.join(__dirname, '..', 'dist', htmlFile));
   });
 }
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { MODS, MOD_KEYS } from "./modalities.js";
 
 /* ── colour tokens ── */
@@ -905,6 +905,87 @@ export default function App() {
   const [plain, setPlain] = useState(false);
   const [modsExpanded, setModsExpanded] = useState(false);
 
+  // ── Auth state ──
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('hs_token'));
+  const [authUser, setAuthUser] = useState(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authIsRegister, setAuthIsRegister] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authExpanded, setAuthExpanded] = useState(false);
+  const [profileSynced, setProfileSynced] = useState(false);
+
+  // Validate token on mount
+  useEffect(() => {
+    if (!authToken) return;
+    fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setAuthUser(data.user))
+      .catch(() => { setAuthToken(null); localStorage.removeItem('hs_token'); });
+  }, [authToken]);
+
+  // Sync modalities from server when logged in
+  useEffect(() => {
+    if (!authToken || !authUser || profileSynced) return;
+    fetch('/api/profile/modalities', { headers: { 'Authorization': `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        if (data.modalities && data.modalities.length > 0) {
+          setMods(new Set(data.modalities));
+        }
+        setProfileSynced(true);
+      })
+      .catch(() => setProfileSynced(true));
+  }, [authToken, authUser, profileSynced]);
+
+  // Save modalities to server when they change (debounced)
+  const saveModalitiesToServer = useCallback(() => {
+    if (!authToken) return;
+    fetch('/api/profile/modalities', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+      body: JSON.stringify({ modalities: [...mods] }),
+    }).catch(() => {});
+  }, [authToken, mods]);
+
+  useEffect(() => {
+    if (!authToken || !profileSynced || mods.size === 0) return;
+    const timer = setTimeout(saveModalitiesToServer, 1000);
+    return () => clearTimeout(timer);
+  }, [mods, authToken, profileSynced, saveModalitiesToServer]);
+
+  const handleAuth = async () => {
+    if (!authEmail || !authPassword) return;
+    setAuthLoading(true);
+    setAuthError("");
+    const endpoint = authIsRegister ? '/api/auth/register' : '/api/auth/login';
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { setAuthError(data.error || 'Auth failed'); return; }
+      localStorage.setItem('hs_token', data.token);
+      setAuthToken(data.token);
+      setAuthUser(data.user);
+      setAuthEmail("");
+      setAuthPassword("");
+      setAuthExpanded(false);
+      setProfileSynced(false);
+    } catch { setAuthError('Network error'); }
+    finally { setAuthLoading(false); }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('hs_token');
+    setAuthToken(null);
+    setAuthUser(null);
+    setProfileSynced(false);
+  };
+
   const T = (key, fallback) => plain && PLAIN[key] ? PLAIN[key] : fallback;
   const dimShort = dim => T(dim.id+".short", dim.short);
   const dimDesc = dim => T(dim.id+".desc", dim.desc);
@@ -1086,6 +1167,39 @@ const GALAXY_IMG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHB
 
   return (
     <div className="hs-container" style={{minHeight:"100vh",background:C.bg,color:C.tx,fontFamily:"'Newsreader','Georgia',serif",padding:"2rem 1.5rem",maxWidth:960,margin:"0 auto"}}>
+      {/* Auth bar */}
+      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",marginBottom:"0.75rem",gap:"0.5rem",minHeight:32}}>
+        {authUser ? (
+          <>
+            <span style={{fontSize:"0.8rem",color:C.txM}}>{authUser.email}</span>
+            <span style={{fontSize:"0.7rem",color:C.acc}}>synced</span>
+            <button onClick={handleLogout} style={{fontSize:"0.75rem",padding:"0.25rem 0.6rem",background:"transparent",border:`1px solid ${C.bdr}`,borderRadius:4,color:C.txM,cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
+            <a href="https://coach.eliwhipple.com" style={{fontSize:"0.75rem",padding:"0.25rem 0.6rem",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:4,color:"#fff",cursor:"pointer",fontFamily:"inherit",textDecoration:"none"}}>Open Coach</a>
+          </>
+        ) : authExpanded ? (
+          <div style={{display:"flex",gap:"0.4rem",alignItems:"center",flexWrap:"wrap"}}>
+            <input value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="Email" type="email"
+              style={{padding:"0.3rem 0.5rem",fontSize:"0.8rem",background:C.card,border:`1px solid ${C.bdr}`,borderRadius:4,color:C.tx,fontFamily:"inherit",width:160}}
+              onKeyDown={e=>e.key==='Enter'&&handleAuth()} />
+            <input value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Password" type="password"
+              style={{padding:"0.3rem 0.5rem",fontSize:"0.8rem",background:C.card,border:`1px solid ${C.bdr}`,borderRadius:4,color:C.tx,fontFamily:"inherit",width:120}}
+              onKeyDown={e=>e.key==='Enter'&&handleAuth()} />
+            <button onClick={handleAuth} disabled={authLoading}
+              style={{fontSize:"0.75rem",padding:"0.3rem 0.6rem",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:4,color:"#fff",cursor:"pointer",fontFamily:"inherit",opacity:authLoading?0.6:1}}>
+              {authLoading?"...":(authIsRegister?"Sign up":"Sign in")}
+            </button>
+            <button onClick={()=>setAuthIsRegister(!authIsRegister)} style={{fontSize:"0.7rem",padding:"0.2rem 0.4rem",background:"transparent",border:"none",color:C.txM,cursor:"pointer",fontFamily:"inherit"}}>
+              {authIsRegister?"Have account?":"New user?"}
+            </button>
+            <button onClick={()=>setAuthExpanded(false)} style={{fontSize:"0.7rem",padding:"0.2rem 0.4rem",background:"transparent",border:"none",color:C.txM,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+            {authError && <span style={{fontSize:"0.7rem",color:C.warn}}>{authError}</span>}
+          </div>
+        ) : (
+          <button onClick={()=>setAuthExpanded(true)} style={{fontSize:"0.75rem",padding:"0.25rem 0.6rem",background:"transparent",border:`1px solid ${C.bdr}`,borderRadius:4,color:C.txM,cursor:"pointer",fontFamily:"inherit"}}>
+            Sign in to sync
+          </button>
+        )}
+      </div>
       <div style={{marginBottom:"2rem",borderRadius:12,overflow:"hidden",position:"relative"}}>
         <div className="hs-hero" style={{position:"relative",height:180,backgroundImage:`url(${GALAXY_IMG})`,backgroundSize:"cover",backgroundPosition:"center 40%"}}>
           <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, rgba(10,10,16,0.3) 0%, rgba(10,10,16,0.85) 75%, rgba(10,10,16,1) 100%)"}}/>
