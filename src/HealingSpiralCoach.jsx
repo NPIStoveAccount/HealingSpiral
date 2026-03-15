@@ -3662,7 +3662,7 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
   const [actionFeedback, setActionFeedback] = useState(null);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
-  const [authIsRegister, setAuthIsRegister] = useState(true);
+  const [authIsRegister, setAuthIsRegister] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -3781,11 +3781,18 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
             <div>
               <div style={sectionLabel}>Account</div>
               <p style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", margin: "0 0 0.5rem", lineHeight: 1.4 }}>
-                Create an account to back up your data to the server, sync across devices, and unlock premium features.
+                Sign in to back up your data, sync across devices, and unlock premium features.
               </p>
               <form onSubmit={async (e) => {
                 e.preventDefault();
-                if (!authEmail.trim() || !authPassword) return;
+                if (!authEmail.trim() || !authPassword) {
+                  setAuthError("Email and password are required");
+                  return;
+                }
+                if (authPassword.length < 8) {
+                  setAuthError("Password must be at least 8 characters");
+                  return;
+                }
                 setAuthLoading(true);
                 setAuthError("");
                 const endpoint = authIsRegister ? '/api/auth/register' : '/api/auth/login';
@@ -3803,6 +3810,7 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
                     showFeedback(authIsRegister ? "Account created!" : "Signed in!", "success");
                     setAuthEmail("");
                     setAuthPassword("");
+                    setAuthError("");
                   }
                 } catch {
                   setAuthError('Connection error. Please try again.');
@@ -3813,7 +3821,10 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
                   onChange={e => setAuthEmail(e.target.value)} style={inputStyle} />
                 <input type="password" placeholder="Password (min 8 chars)" value={authPassword}
                   onChange={e => setAuthPassword(e.target.value)} style={inputStyle} />
-                <button type="submit" disabled={authLoading || !authEmail.includes("@") || authPassword.length < 8} style={{
+                {authError && (
+                  <div style={{ fontSize: "0.7rem", color: "#e05050", textAlign: "center" }}>{authError}</div>
+                )}
+                <button type="submit" disabled={authLoading} style={{
                   ...btnStyle, opacity: authLoading ? 0.5 : 1,
                   color: "var(--gold)", borderColor: "rgba(201,162,39,0.3)",
                 }}>
@@ -3825,9 +3836,6 @@ function SettingsPanel({ open, onClose, authToken, authSubscription, onSubscript
                 }}>
                   {authIsRegister ? "Already have an account? Sign in" : "Need an account? Create one"}
                 </button>
-                {authError && (
-                  <div style={{ fontSize: "0.7rem", color: "#e05050", textAlign: "center" }}>{authError}</div>
-                )}
               </form>
             </div>
           )}
