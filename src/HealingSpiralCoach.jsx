@@ -1521,6 +1521,7 @@ THE HEALING SPIRAL FRAMEWORK (for when the person asks about it):
             setEmailSending(false);
             setStage("paywall");
           }}
+          onSkip={() => setStage("paywall")}
         />
       )}
 
@@ -2474,7 +2475,7 @@ function Results({ scores, modalities, onEmailCapture, onDownloadPDF, onSkipToCo
 
 // ── EMAIL CAPTURE ──────────────────────────────────────────────────────────
 
-function EmailCapture({ email, onChange, onSubmit, loading, onBack }) {
+function EmailCapture({ email, onChange, onSubmit, loading, onBack, onSkip }) {
   return (
     <div style={styles.page}>
       {onBack && <BackButton onClick={onBack} />}
@@ -2504,6 +2505,15 @@ function EmailCapture({ email, onChange, onSubmit, loading, onBack }) {
           </button>
         </div>
         <p style={styles.emailMeta}>No spam. You can unsubscribe anytime.</p>
+        <button onClick={onSkip} style={{
+          background: "none", border: "none", color: "rgba(255,255,255,0.3)",
+          fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: "0.85rem",
+          cursor: "pointer", marginTop: "1.5rem", letterSpacing: "0.03em",
+          transition: "color 0.2s",
+        }}
+        onMouseEnter={e => e.target.style.color = "var(--gold)"}
+        onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.3)"}
+        >Skip for now →</button>
       </div>
     </div>
   );
