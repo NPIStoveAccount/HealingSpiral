@@ -348,6 +348,14 @@ export default function HealingSpiralApp() {
   // stages: landing | persona | assessment_choice | modality_profile | questionnaire | confirm_assessment | socratic | probing | profile_review | results | email_capture | paywall | chat
   const [stage, setStageRaw] = usePersisted("stage", "landing");
   const setStage = (s) => { setStageRaw(s); };
+
+  // On mount: if user has an active chat session but landed on an intermediate page, restore to chat
+  useEffect(() => {
+    const s = loadSession();
+    if (s?.chatMessages?.length > 0 && s?.scores && ["email_capture", "paywall", "results", "profile_review"].includes(stage)) {
+      setStageRaw("chat");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [_personaStored, setPersonaRaw] = usePersisted("persona", null);
   // Re-hydrate from PERSONAS array to restore functions/prompts stripped by JSON serialization
   const persona = _personaStored ? (PERSONAS.find(p => p.id === _personaStored.id) || _personaStored) : null;
