@@ -2579,26 +2579,26 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.35)"}
         >⚙</button>
       </div>
-      <div style={{ padding: "1rem", borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: "0.5rem 0.75rem", borderBottom: '1px solid var(--border)' }}>
         <div style={styles.sidebarLabel}>COACH VOICE</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.3rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.2rem" }}>
           {PERSONAS.map(p => (
             <button key={p.id} onClick={() => { onPersonaChange(p); if (isMobile) setSidebarOpen(false); }}
               style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem",
                 background: p.id === persona.id ? "rgba(201,162,39,0.15)" : "transparent",
                 border: p.id === persona.id ? "1px solid var(--gold)" : "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 4, padding: "0.3rem 0.25rem", cursor: "pointer",
+                borderRadius: 4, padding: "0.2rem 0.2rem", cursor: "pointer",
                 color: "var(--text)", fontFamily: "inherit", transition: "all 0.15s",
               }}>
-              <span style={{ fontSize: "0.85rem" }}>{p.emoji}</span>
-              <span style={{ fontSize: "0.6rem", textAlign: "center", lineHeight: 1.2, opacity: 0.8 }}>{p.name.replace('The ', '')}</span>
+              <span style={{ fontSize: "0.75rem" }}>{p.emoji}</span>
+              <span style={{ fontSize: "0.5rem", textAlign: "center", lineHeight: 1.1, opacity: 0.8 }}>{p.name.replace('The ', '')}</span>
             </button>
           ))}
         </div>
       </div>
-      <div style={{ ...styles.sidebarSection, borderBottom: '1px solid var(--border)' }}>
-        <div style={styles.sidebarLabel}>LANGUAGE</div>
+      <div style={{ ...styles.sidebarSection, borderBottom: '1px solid var(--border)', padding: "0.4rem 0.75rem" }}>
+        <div style={{ ...styles.sidebarLabel, marginBottom: "0.2rem" }}>LANGUAGE</div>
         <LanguageToggle clinical={clinicalMode} onToggle={onToggleClinical} sidebar />
       </div>
       <div style={styles.sidebarSection}>
@@ -2676,15 +2676,15 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
           </div>
         )}
       </div>
-      <div style={{ ...styles.sidebarSection, borderBottom: "1px solid var(--border)" }}>
-        <div style={styles.sidebarLabel}>JOURNAL</div>
-        <div style={{ fontSize: "0.7rem", opacity: 0.5, marginBottom: "0.3rem" }}>
+      <div style={{ ...styles.sidebarSection, borderBottom: "1px solid var(--border)", padding: "0.4rem 0.75rem" }}>
+        <div style={{ ...styles.sidebarLabel, marginBottom: "0.2rem" }}>JOURNAL</div>
+        <div style={{ fontSize: "0.6rem", opacity: 0.5, marginBottom: "0.2rem" }}>
           {journalEntries.length} entr{journalEntries.length === 1 ? 'y' : 'ies'}
         </div>
         {journalEntries.length > 0 && (
           <div style={{
-            fontSize: "0.7rem", opacity: 0.4, padding: "0.3rem 0.4rem",
-            background: "rgba(255,255,255,0.02)", borderRadius: 4, marginBottom: "0.3rem",
+            fontSize: "0.6rem", opacity: 0.4, padding: "0.2rem 0.4rem",
+            background: "rgba(255,255,255,0.02)", borderRadius: 4, marginBottom: "0.2rem",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
             {journalEntries[0]?.mood ? journalEntries[0].mood + ' ' : ''}{journalEntries[0]?.content?.slice(0, 60)}...
@@ -2692,35 +2692,33 @@ function CoachingChat({ persona, messages, input, loading, streaming, bottomRef,
         )}
         <button onClick={() => setJournalPanelOpen(true)} style={{
           background: "none", border: "1px solid rgba(201,162,39,0.15)", color: "var(--gold)",
-          padding: "0.25rem 0.5rem", borderRadius: 4, fontFamily: "inherit", fontSize: "0.6rem",
+          padding: "0.2rem 0.5rem", borderRadius: 4, fontFamily: "inherit", fontSize: "0.55rem",
           cursor: "pointer", width: "100%", textAlign: "center", opacity: 0.7,
         }}>
           View all entries
         </button>
       </div>
-      <div style={{ padding: "0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      <div style={{ padding: "0.4rem 0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
         <a href="https://www.newpowerindustry.com/healingspiral/app" target="_blank" rel="noopener noreferrer" style={{
           display: "block", color: "var(--gold)", opacity: 0.6,
-          fontSize: "0.65rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+          fontSize: "0.55rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
           textDecoration: "none", textAlign: "center", letterSpacing: "0.05em",
           textTransform: "uppercase",
         }}>
-          View Your Full Profile →
+          View Full Profile →
         </a>
         <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" style={{
           display: "block", color: "var(--gold)", opacity: 0.45,
-          fontSize: "0.65rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
+          fontSize: "0.55rem", fontFamily: "'Cormorant Garamond', Georgia, serif",
           textDecoration: "none", textAlign: "center", letterSpacing: "0.05em",
           textTransform: "uppercase",
         }}>
-          Book a live session with Eli
+          Book a session with Eli
         </a>
-      </div>
-      <div style={{ padding: "0.5rem 0.75rem" }}>
         <button onClick={downloadLocalExport} style={{
-          width: "100%", padding: "0.4rem 0.5rem", borderRadius: 4,
+          width: "100%", padding: "0.25rem 0.5rem", borderRadius: 4,
           background: "rgba(201,162,39,0.08)", border: "1px solid rgba(201,162,39,0.2)",
-          color: "var(--gold)", fontFamily: "inherit", fontSize: "0.65rem",
+          color: "var(--gold)", fontFamily: "inherit", fontSize: "0.55rem",
           cursor: "pointer", letterSpacing: "0.03em", transition: "all 0.2s",
         }}
         onMouseEnter={e => { e.target.style.background = "rgba(201,162,39,0.15)"; }}
@@ -4315,29 +4313,30 @@ const styles = {
     width: 220, flexShrink: 0, borderRight: "1px solid var(--border)",
     display: "flex", flexDirection: "column", overflowY: "auto",
     background: "rgba(0,0,0,0.2)",
+    scrollbarWidth: "none", msOverflowStyle: "none",
   },
   sidebarHeader: {
-    padding: "1rem", borderBottom: "1px solid var(--border)",
+    padding: "0.5rem 0.75rem", borderBottom: "1px solid var(--border)",
     display: "flex", alignItems: "center", gap: "0.5rem",
   },
   sidebarPersona: {
-    padding: "1rem", borderBottom: "1px solid var(--border)",
+    padding: "0.5rem 0.75rem", borderBottom: "1px solid var(--border)",
     display: "flex", alignItems: "center", gap: "0.5rem",
   },
-  sidebarSection: { padding: "1rem" },
+  sidebarSection: { padding: "0.5rem 0.75rem" },
   sidebarLabel: {
-    fontSize: "0.65rem", letterSpacing: "0.12em", opacity: 0.4,
-    textTransform: "uppercase", marginBottom: "0.75rem",
+    fontSize: "0.6rem", letterSpacing: "0.12em", opacity: 0.4,
+    textTransform: "uppercase", marginBottom: "0.4rem",
   },
   sidebarDimRow: {
-    display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.35rem",
+    display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.2rem",
   },
   sidebarBarBg: {
-    flex: 1, height: 4, background: "rgba(255,255,255,0.08)",
+    flex: 1, height: 3, background: "rgba(255,255,255,0.08)",
     borderRadius: 2, overflow: "hidden",
   },
   sidebarMod: {
-    fontSize: "0.75rem", opacity: 0.7, marginBottom: "0.4rem",
+    fontSize: "0.7rem", opacity: 0.7, marginBottom: "0.25rem",
     paddingLeft: "0.5rem", borderLeft: "2px solid var(--gold-dim)",
   },
 };
